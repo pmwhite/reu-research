@@ -30,13 +30,13 @@ def users_after(last_user, key):
         # Yield the name of each user in the response.
         for user in response.json():
             last_id = str(user['id'])
-            yield user['login']
+            yield user
 
         # Calculate the time we should wait before making another request.
         # Notice that since this is an iterator, we are not guarunteed to be
         # running at full speed, so we must check how long we took. Perhaps
         # this isn't entirely necessary, but it may be helpful in the future.
-        time_before_reset = max(0.5, int(response.headers['X-RateLimit-Reset']) - time.time())
+        time_before_reset = int(response.headers['X-RateLimit-Reset']) - time.time()
         requests_left = int(response.headers['X-RateLimit-Remaining'])
         delay_time = max(0, time_before_reset / requests_left)
 
@@ -44,7 +44,10 @@ def users_after(last_user, key):
         # for the last request so that we don't get any off-by-one or latency
         # related errors.
         if requests_left == 1:
-            time.sleep(time_left + 5)
+            time.sleep(time_before_reset + 5)
         else:
             time.sleep(delay_time)
         response = req()
+
+def usernames_after(last_user, key):
+    return map(lambda user: user['login'], users_after(last_user, key))

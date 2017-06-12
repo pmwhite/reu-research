@@ -10,7 +10,7 @@ r = redis.StrictRedis(host='localhost', port=6379, db=0)
 def github_stack_users():
     last_user = r.get('last_common').decode()
     stack_users = set(map(lambda line: line.strip(), open('users_stack.txt', 'r')))
-    for github_user in github.users_after(last_user, keys.GITHUB_KEY):
+    for github_user in github.usernames_after(last_user, keys.GITHUB_KEY):
         if github_user in stack_users:
             yield github_user
 
