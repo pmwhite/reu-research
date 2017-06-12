@@ -4,3 +4,5 @@ users_*
 Users.xml
 backup/
 keys.py
+.idea
+dump.rdb

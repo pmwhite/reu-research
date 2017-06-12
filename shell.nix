@@ -1,5 +1,4 @@
 with import <nixpkgs> {};
-with pkgs.python35Packages;
 
 let vim = vim_configurable.customize {
   name = "python-vim";
@@ -9,9 +8,13 @@ let vim = vim_configurable.customize {
     { names = [ "vim-nix" "ctrlp" "YouCompleteMe" ]; }
   ];
 };
+pycharmOrcle = idea.pycharm-community.override {
+  jdk = oraclejdk8;
+};
 in
-buildPythonPackage rec {
+pkgs.python35Packages.buildPythonPackage rec {
   name = "reu-research";
-  buildInputs = [ vim sqlite sqlitebrowser ];
-  propagatedBuildInputs = [ pytest requests networkx matplotlib ];
+  buildInputs = [ vim sqlite sqlitebrowser redis pycharmOrcle ];
+  propagatedBuildInputs = with pkgs.python35Packages; [ 
+    pytest requests networkx matplotlib redis ];
 }
