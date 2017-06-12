@@ -2,7 +2,6 @@
 __pycache__/
 users_*
 Users.xml
-backup/
 keys.py
 .idea
-dump.rdb
+*.rdb
