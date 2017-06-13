@@ -1,8 +1,12 @@
-*.swp
+# Python, intellij, and data files directories
 __pycache__/
-users_*
-*.xml
+.idea/
+data/
+backup/
+
+# Don't check keys into version control
 keys.py
-.idea
-*.rdb
-*.db
+
+# Ignore vim temporary files as well as zip files.
+*.swp
+*.7z
