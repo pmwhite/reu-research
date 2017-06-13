@@ -18,7 +18,7 @@ def reload_stack_tags(cursor):
     cursor.execute('DELETE FROM StackTags')
 
     # Get the iterator of value tuples to pass to the SQL engine.
-    children = xml_children('Tags.xml')
+    children = xml_children('data/Tags.xml')
     values = ((child['Id'], child['TagName'], child['Count']) 
             for child in children)
 
@@ -33,7 +33,7 @@ def reload_stack_users(cursor):
     cursor.execute('DELETE FROM StackUsers')
 
     # Get the tuple generator to feed into the SQL engine.
-    children = xml_children('Users.xml')
+    children = xml_children('data/Users.xml')
     def values():
         count = 0
         for child in children:
