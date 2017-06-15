@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+import itertools
 import sqlite3
 
 # An iterator of all the children of a given xml file. The file is
@@ -59,3 +60,35 @@ def reload_stack_users(cursor):
     cursor.executemany(
             'INSERT OR IGNORE INTO StackUsers VALUES(?, ?, ?, ?, ?, ?)', 
             values())
+
+def reload_stack_comments(cursor):
+    print('Deleting comment data')
+    cursor.execute('DELETE FROM StackComments')
+
+    children = xml_children('data/Comments.xml')
+
+    print('Loading comment data')
+    def values():
+        count = 0
+        for child in children:
+            if child.get('UserId', None) == None:
+                continue
+            yield ((child['Id'], child['PostId'], child['Score'], child['UserId']))
+            count += 1
+            if count % 100000 == 0: print(count / 1000000.0)
+
+    cursor.executemany('INSERT INTO StackComments VALUES(?,?,?,?)', values())
+
+def reload_stack_posts(cursor):
+    print('Deleting post data')
+    cursor.execute('DELETE FROM StackPosts')
+
+    children = xml_children('data/Posts.xml')
+
+    print('Loading post data')
+    for child in children:
+        post_id = child['Id']
+        post_type = child['PostTypeId']
+
+        if post_type == 1:
+

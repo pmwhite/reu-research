@@ -14,7 +14,9 @@ pycharmOrcle = idea.pycharm-community.override {
 in
 pkgs.python35Packages.buildPythonPackage rec {
   name = "reu-research";
-  buildInputs = [ vim sqlite sqlitebrowser redis pycharmOrcle ];
+  buildInputs = [ 
+    vim sqlite sqlitebrowser redis pycharmOrcle graphviz ];
   propagatedBuildInputs = with pkgs.python35Packages; [ 
-    pytest requests networkx matplotlib redis ];
+    pytest pyqt4 requests networkx 
+    matplotlib numpy pandas graphviz ];
 }
