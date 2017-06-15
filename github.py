@@ -166,3 +166,28 @@ class User:
                 self.name, self.blog, self.company)
 
         cursor.execute('REPLACE INTO GithubUsers VALUES(?,?,?,?,?,?,?)', values)
+
+class Repo:
+    def __init__(self, repo_id, name, language, homepage):
+        self.repo_id = repo_id
+        self.name = name
+        self.language = language
+        self.homepage = homepage
+
+    def __repr__(self):
+        return 'Repo({0}, {1}, {2}, {3})'.format(
+                self.repo_id, self.name, self.language, self.homepage)
+
+    def __str__(self):
+        if self.homepage == None:
+            return 'Repo({0}, {1})'.format(self.name, self.language)
+        else: return 'Repo({0}, {1}, {2})'.format(self.name, self.language, self.homepage)
+
+    def from_json(data):
+        return Repo(data['id'],data['name'], data['language'], data['homepage'])
+
+    def fetch(ownerlogin, repo_name):
+        response = request_api('repos/' + ownerlogin + '/' + repo_name)
+        if response.status_code == 200:
+            return Repo.from_json(response.json())
+        else: return None
