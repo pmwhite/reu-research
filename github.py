@@ -183,13 +183,8 @@ class User:
         return User.fetch_single(self.login)
 
     def fetch_after(since_id):
-        response = request_api('users', params={'since': since_id})
-        last_id = since_id
-        while response.status_code == 200:
-            for user in response.json():
-                last_id = user['id']
-                yield User.from_json(user)
-            response = request_api('users', params={'since': last_id})
+        return map(User.from_json,
+                paginate_api('users', start_params={'since': since_id}))
 
     def store(self, cursor):
         values = (self.user_id, self.login, self.location, self.email, 
@@ -236,6 +231,6 @@ class Repo:
         else: return None
 
     def contributors(self):
-        response = requests_api(
-                'repos/' + self.owner_login + '/' + self.name + '/contributors')
-        return map(User.from_json, response.json())
+        return map(User.from_json,
+                paginate_api(
+                    'repos/' + self.owner_login + '/' + self.name + '/contributors'))
