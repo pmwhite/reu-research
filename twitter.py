@@ -19,14 +19,10 @@ def request_users(users):
 
     time_before_reset = max(0.5, int(rate_limit_state['reset']) - time.time())
     requests_left = int(rate_limit_state['remaining'])
-    print(requests_left, 'requests left')
     
     if requests_left <= 1: delay_time = time_before_reset + 5
     else: delay_time = time_before_reset / requests_left
 
-    print(delay_time, 'delay time')
-    print(time_before_reset, ' time lift')
-    print()
     time.sleep(delay_time)
     return requests.get(
         'https://api.twitter.com/1.1/users/lookup.json?screen_name=' + 
@@ -70,7 +66,6 @@ def store_n_common(n, cursor):
               JOIN GithubUsers gu2
               WHERE gu2.Login = tu.ScreenName)
             ''').fetchmany(n)
-    print('fetched')
 
     usernames = map(lambda row: row[0], untwittered)
     for user in get_users(usernames):
