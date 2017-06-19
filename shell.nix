@@ -11,6 +11,9 @@ let vim = vim_configurable.customize {
 pycharmOrcle = idea.pycharm-community.override {
   jdk = oraclejdk8;
 };
+gephiOrcle = gephi.override {
+  jdk = oraclejdk8;
+};
 in
 pkgs.python35Packages.buildPythonPackage rec {
   name = "reu-research";

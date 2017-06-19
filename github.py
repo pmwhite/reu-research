@@ -152,14 +152,14 @@ class User:
         else: self.company = company
 
     def __repr__(self):
-        return 'User({0}, {1}, location={2}, email={3}, name={4}, blog={5}, company={6})'.format(
+        return 'github.User({0}, {1}, location={2}, email={3}, name={4}, blog={5}, company={6})'.format(
                 self.user_id, self.login, self.location, self.email, 
                 self.name, self.blog, self.company)
 
     def __str__(self): 
         if self.name == None:
-            return 'User({0})'.format(self.login)
-        else: return 'User({0}, {1})'.format(self.login, self.name)
+            return 'GithubUser({0})'.format(self.login)
+        else: return 'GithubUser({0}, {1})'.format(self.login, self.name)
 
     def from_json(data):
         return User(data['id'], data['login'],
