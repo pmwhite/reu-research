@@ -16,7 +16,7 @@ def rated_request(url, params={}):
     if requests_left <= 1: delay_time = time_before_reset + 5
     else: delay_time = time_before_reset / requests_left
 
-    time.sleep(delay_time)
+    time.sleep(max(0,5,delay_time))
 
     request_params = params.copy()
     request_params['access_token'] = keys.GITHUB_KEY
@@ -97,12 +97,8 @@ def fill_login(login, cursor):
     company = user.get('company', None)
     if company == '': company = None
 
-    values = (username, location, email, name, blog, company, user['id'])
-    cursor.execute('''
-        UPDATE GithubUsers 
-        SET Login = ?, Location = ?, Email = ?, Name = ?, Blog = ?, Company = ?
-        WHERE Id = ?
-        ''', values)
+    values = (user['id'], username, location, email, name, blog, company)
+    cursor.execute('REPLACE INTO GithubUsers VALUES(?,?,?,?,?,?,?)', values)
 
 def store_users(users, cursor): 
     for user in users: store_shallow(user, cursor)
@@ -185,12 +181,6 @@ class User:
     def fetch_after(since_id):
         return map(User.from_json,
                 paginate_api('users', start_params={'since': since_id}))
-
-    def store(self, cursor):
-        values = (self.user_id, self.login, self.location, self.email, 
-                self.name, self.blog, self.company)
-
-        cursor.execute('REPLACE INTO GithubUsers VALUES(?,?,?,?,?,?,?)', values)
 
     def repos(self):
         items = paginate_api('users/' + self.login + '/repos')

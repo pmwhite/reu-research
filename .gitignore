@@ -3,6 +3,7 @@ __pycache__/
 .idea/
 data/
 backup/
+img/
 
 # Don't check keys into version control
 keys.py
