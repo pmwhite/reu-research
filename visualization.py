@@ -58,17 +58,10 @@ def twitter_network(screen_name, depth=1, edges=1000):
                 continue
             else:
                 print('searching user', user.screen_name)
-                for following in user.following():
-                    print('found following', following.screen_name)
-                    new_leaves.append(following)
-                    graph.add_edge(following.screen_name, user.screen_name)
-                    edge_count += 1
-                    if edge_count > edges:
-                        return graph
-                for follower in user.followers():
-                    print('found follower', follower.screen_name)
-                    new_leaves.append(follower)
-                    graph.add_edge(follower.screen_name, user.screen_name)
+                for friend in user.friends():
+                    print('found friend', friend.screen_name)
+                    new_leaves.append(friend)
+                    graph.add_edge(friend.screen_name, user.screen_name)
                     edge_count += 1
                     if edge_count > edges:
                         return graph
@@ -78,7 +71,7 @@ def twitter_network(screen_name, depth=1, edges=1000):
     return graph
 
     
-g = twitter_network('philmwhite', depth=10, edges=100)
+g = twitter_network('krateocashmoney', depth=10, edges=1000)
 for edge in g.edges_iter():
     print(edge)
 
