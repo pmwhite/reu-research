@@ -161,6 +161,23 @@ class User:
             return 'GithubUser({0})'.format(self.login)
         else: return 'GithubUser({0}, {1})'.format(self.login, self.name)
 
+    def __hash__(self):
+        return self.user_id
+
+    def __eq__(self, other):
+        return self.user_id == other.user_id
+
+    def get_json(self):
+        props = [('id', self.user_id),
+                 ('login', self.login),
+                 ('location', self.location),
+                 ('email', self.email),
+                 ('name', self.name),
+                 ('blog', self.blog),
+                 ('company', self.company)]
+        return dict((k, v) for k, v in props if v is not None)
+
+
     def from_json(data):
         return User(data['id'], data['login'],
                 location=data.get('location', None),

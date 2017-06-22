@@ -5,68 +5,55 @@ import time
 import sqlite3
 import twitter
 
-token_reponse = requests.post(
-        'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
-        auth=(keys.TWITTER_API, keys.TWITTER_SECRET)).json()
+class Api:
+    def __init__(api_key, secret_key):
+        token_reponse = requests.post(
+                'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
+                auth=(api_key, secret_key)).json()
 
-access_token = token_reponse['access_token']
-auth_headers = {'Authorization': 'Bearer ' + access_token}
+        access_token = token_reponse['access_token']
+        self.auth_headers = {'Authorization': 'Bearer ' + access_token}
 
-def rated_request(path, params, family, resource):
-    rate_limit = requests.get(
-            'https://api.twitter.com/1.1/application/rate_limit_status.json?' + 
-            'resources=' + family,
-            headers=auth_headers).json()
-    print(rate_limit)
-    rate_limit_state = rate_limit['resources'][family][resource]
+    def rated_request(path, params, family, resource):
+        rate_limit = requests.get(
+                'https://api.twitter.com/1.1/application/rate_limit_status.json?' + 
+                'resources=' + family,
+                headers=self.auth_headers).json()
+        rate_limit_state = rate_limit['resources'][family][resource]
 
-    time_before_reset = int(rate_limit_state['reset']) - time.time()
-    requests_left = int(rate_limit_state['remaining'])
+        time_before_reset = int(rate_limit_state['reset']) - time.time()
+        requests_left = int(rate_limit_state['remaining'])
 
-    print('time left:', time_before_reset, ', requests left:', requests_left)
-    
-    if requests_left <= 1: delay_time = time_before_reset + 5
-    else: delay_time = time_before_reset / requests_left
+        print('time left:', time_before_reset, ', requests left:', requests_left)
+        
+        if requests_left <= 1: delay_time = time_before_reset + 5
+        else: delay_time = time_before_reset / requests_left
 
-    time.sleep(max(0.5,delay_time))
-    
-    return requests.get(
-            'https://api.twitter.com/1.1/' + path, 
-            params=params, headers=auth_headers)
+        time.sleep(max(0.5,delay_time))
+        
+        return requests.get(
+                'https://api.twitter.com/1.1/' + path, 
+                params=params, headers=auth_headers)
 
-def paginate_api(path, page_property, params, family, resource):
-    cursor = -1
-    p = params.copy()
-    p['cursor'] = cursor
-    response = rated_request(path, p, family=family, resource=resource)
-    while response.status_code == 200:
-        print(cursor)
-        data = response.json()
-        for item in data[page_property]:
-            yield item
-
-        cursor = data['next_cursor_str']
-        if cursor == '0': break
+    def paginate_api(path, page_property, params, family, resource):
+        cursor = -1
+        p = params.copy()
         p['cursor'] = cursor
         response = rated_request(path, p, family=family, resource=resource)
+        while response.status_code == 200:
+            data = response.json()
+            for item in data[page_property]:
+                yield item
+
+            cursor = data['next_cursor_str']
+            if cursor == '0': break
+            p['cursor'] = cursor
+            response = rated_request(path, p, family=family, resource=resource)
 
 def grouper(iterable, n):
     args = [iter(iterable)] * n
     for group in itertools.zip_longest(*args, fillvalue=None):
         yield filter(lambda x: x != None, group)
-
-
-
-def request_users(users):
-    return request_api('users/lookup.json',
-            params={'screen_name' : ','.join(users)})
-
-def get_users(users):
-    for group in grouper(users, 90):
-        response = request_users(group)
-        if response.status_code == 200:
-            for user in response.json():
-                yield user
 
 def store_user(user, cursor):
     id_num = user.get('id')
@@ -99,7 +86,7 @@ def store_n_common(n, cursor):
         store_user(user, cursor)
 
 class User:
-    def __init__(self, user_id, screen_name, name=None, location=None, url=None):
+    def __init__(self, cursor, user_id, screen_name, name=None, location=None, url=None):
         self.user_id = user_id
         self.screen_name = screen_name
 
@@ -111,6 +98,10 @@ class User:
 
         if url == '': self.url = None
         else: self.url = url
+        
+        cursor.execute('INSERT INTO TwitterUsers VALUES(?,?,?,?,?)',
+                (self.user_id, self.screen_name, self.name, self.location, self.url))
+
 
     def __repr__(self):
         return 'twitter.User({0}, {1}, name={2}, location={3}, url={4})'.format(
@@ -119,6 +110,22 @@ class User:
     def __str__(self):
         if self.name == None: return 'TwitterUsers({0}'.format(self.screen_name)
         else: return 'TwitterUsers({0}, {1})'.format(self.screen_name, self.name)
+
+    def __hash__(self):
+        return self.user_id
+
+    def __eq__(self, other):
+        return self.user_id == other.user_id
+
+    def get_json(self):
+        props = [('id', self.user_id),
+                 ('screenName', self.screen_name),
+                 ('name', self.name),
+                 ('location', self.location),
+                 ('url', self.url)]
+        return dict((k, v) for k, v in props if v is not None)
+
+
 
     def from_json(data):
         return User(data['id'], data['screen_name'], data['name'], 
@@ -186,8 +193,5 @@ class User:
             family='friends',
             resource='/friends/ids'))
         common_ids = follower_ids.intersection(following_ids)
-        print(following_ids)
-        print(follower_ids)
-        print(common_ids)
         return User.fetch_ids(list(common_ids))
 

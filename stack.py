@@ -87,7 +87,8 @@ def reload_stack_posts(cursor):
 
     children = xml_children('data/Posts.xml')
 
-    tag_data = dict(cursor.execute('SELECT TagName, Id FROM StackTags').fetchmany(100000))
+    tag_data = dict(
+            cursor.execute('SELECT TagName, Id FROM StackTags').fetchmany(100000))
 
     print('Loading post data')
     count = 0
@@ -112,3 +113,71 @@ def reload_stack_posts(cursor):
 
         count = count + 1
         if count % 10000 == 0: print(count / 1000000.0)
+
+class User:
+
+    def __init__(self, user_id, display_name, reputation, website_url, age, location):
+        self.user_id = user_id
+        self.display_name = display_name
+        self.reputation = reputation
+        self.website_url = website_url
+        self.age = age
+        self.location = location
+
+    def __repr__(self):
+        return 'StackUsers({0}, {1}, {2}, {3}, {4}, {5})'.format(
+                self.user_id, self.display_name, self.reputation,
+                self.website_url, self.age, self.location)
+
+    def __str__(self):
+        return 'StackUser({0})'.format(self.display_name)
+
+    def __hash__(self):
+        return self.user_id
+    
+    def __eq__(self, other):
+        return self.user_id == other.user_id
+
+    def get_json(self):
+        props = [('id', self.user_id),
+                 ('displayName', self.display_name),
+                 ('reputation', self.reputation),
+                 ('websiteUrl', self.website_url),
+                 ('age', self.age),
+                 ('location', self.location)]
+        return dict((k, v) for k, v in props if v is not None)
+
+    def fetch_id(user_id, cursor):
+        values = cursor.execute(
+                'SELECT * FROM StackUsers WHERE Id = ?',
+                (user_id,)).fetchone()
+        print(values)
+        return User(*values)
+
+    def fetch_display_name(display_name, cursor):
+        users = cursor.execute(
+                'SELECT * FROM StackUsers WHERE DisplayName = ?',
+                (display_name,)).fetchall()
+        return (User(*values) for values in users)
+
+    def answerers(self, cursor):
+        answerers = cursor.execute('''
+            SELECT answerers.* FROM StackUsers su
+            JOIN StackPosts sp ON su.Id = sp.OwnerUserId
+            JOIN StackPosts answers ON answers.Id = sp.AcceptedAnswerId
+            JOIN StackUsers answerers ON answerers.Id = answers.OwnerUserId
+            WHERE su.Id = ?''', (self.user_id,)).fetchall()
+
+        for values in answerers:
+            yield User(*values)
+
+    def questioners(self, cursor):
+        questioners = cursor.execute('''
+            SELECT questioners.* FROM StackUsers su
+            JOIN StackPosts sp ON su.Id = sp.OwnerUserId
+            JOIN StackPosts questions ON questions.Id = sp.ParentId
+            JOIN StackUsers questioners ON questioners.Id = questions.OwnerUserId
+            WHERE su.Id = ?''', (self.user_id,)).fetchall()
+        
+        for values in questioners:
+            yield User(*values)

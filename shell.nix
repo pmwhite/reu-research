@@ -18,6 +18,6 @@ pkgs.python35Packages.buildPythonPackage rec {
   buildInputs = [ 
     vim sqlite sqlitebrowser pycharmOrcle python35 graphviz ];
   propagatedBuildInputs = with pkgs.python35Packages; [ 
-    pytest pyqt4 requests networkx 
+    pytest pyqt4 requests networkx
     matplotlib numpy pandas graphviz ];
 }
