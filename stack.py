@@ -1,6 +1,8 @@
 import xml.etree.ElementTree as ET
 import itertools
 import sqlite3
+import time
+import re
 
 # An iterator of all the children of a given xml file. The file is
 # assumed to be of depth 1, since the StackExchange data dump files also
@@ -41,8 +43,8 @@ def reload_stack_users(cursor):
             # Grab various attributes; make sure the account id is valid, and
             # replace empty strings with NULL. Note that 'None' in python is
             # NULL in SQL.
-            account_id = child.get('AccountId', None)
-            if account_id == None: continue
+            user_id = child.get('Id', None)
+            if user_id == None: continue
             display_name = child['DisplayName']
             reputation = child['Reputation']
             website_url = child.get('WebsiteUrl', None)
@@ -50,7 +52,7 @@ def reload_stack_users(cursor):
             age = child.get('Age', None)
             location = child.get('Location', None)
             if location == '': location = None
-            yield (account_id, display_name, reputation, 
+            yield (user_id, display_name, reputation, 
                     website_url, age, location)
             count = count + 1
             if count % 10000 == 0: print(count, 'lines processed')
@@ -85,10 +87,28 @@ def reload_stack_posts(cursor):
 
     children = xml_children('data/Posts.xml')
 
+    tag_data = dict(cursor.execute('SELECT TagName, Id FROM StackTags').fetchmany(100000))
+
     print('Loading post data')
+    count = 0
     for child in children:
         post_id = child['Id']
         post_type = child['PostTypeId']
+        score = child['Score']
+        owner_user_id = child.get('OwnerUserId', None)
+        accepted_answer_id = child.get('AcceptedAnswerId', None)
+        parent_id = child.get('ParentId', None)
+        cursor.execute('INSERT INTO StackPosts VALUES(?,?,?,?,?,?)',
+                (post_id, post_type, score, owner_user_id, 
+                    accepted_answer_id, parent_id))
 
-        if post_type == 1:
+        tags_str = child.get('Tags', None)
+        if tags_str:
+            tags = re.findall('<(.*?)>', tags_str)
+            for tag in tags:
+                tag_id = tag_data[tag]
+                cursor.execute('INSERT INTO StackTagAssignments VALUES(?,?)',
+                    (post_id, tag_id))
 
+        count = count + 1
+        if count % 10000 == 0: print(count / 1000000.0)
