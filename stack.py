@@ -15,7 +15,7 @@ def xml_children(filename):
 
 
 # Deletes all tag data from the database and reloads it from the xml file.
-def reload_stack_tags(cursor):
+def reload_tags(cursor):
 
     print('Deleting tag data')
     cursor.execute('DELETE FROM StackTags')
@@ -30,7 +30,7 @@ def reload_stack_tags(cursor):
 
 
 # Deletes all user data from the database and reloads it from the xml file.
-def reload_stack_users(cursor):
+def reload_users(cursor):
 
     print('Deleting user data')
     cursor.execute('DELETE FROM StackUsers')
@@ -63,7 +63,7 @@ def reload_stack_users(cursor):
             'INSERT OR IGNORE INTO StackUsers VALUES(?, ?, ?, ?, ?, ?)', 
             values())
 
-def reload_stack_comments(cursor):
+def reload_comments(cursor):
     print('Deleting comment data')
     cursor.execute('DELETE FROM StackComments')
 
@@ -81,7 +81,7 @@ def reload_stack_comments(cursor):
 
     cursor.executemany('INSERT INTO StackComments VALUES(?,?,?,?)', values())
 
-def reload_stack_posts(cursor):
+def reload_posts(cursor):
     print('Deleting post data')
     cursor.execute('DELETE FROM StackPosts')
 

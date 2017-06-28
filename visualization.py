@@ -16,36 +16,44 @@ def network(init, child_gen, parent_gen, depth):
     for curr_depth in range(depth):
         print('=================================== depth', curr_depth)
         new_leaves = set()
-        for leaf in leaves:
+        leaf_count = len(leaves)
+        for index, leaf in enumerate(leaves):
+            print('|', ('=' * index).ljust(leaf_count), '|')
             searched.add(leaf)
             for child in child_gen(leaf): 
+                # print(leaf, '->', child)
                 new_leaves.add(child)
-                graph.add_node(child, attr_dict=child.get_json())
+                graph.add_node(child, attr_dict=child.to_json())
                 graph.add_edge(leaf, child)
-
             for parent in parent_gen(leaf): 
+                # print(parent, '->', leaf)
                 new_leaves.add(parent)
-                graph.add_node(parent, attr_dict=parent.get_json())
+                graph.add_node(parent, attr_dict=parent.to_json())
                 graph.add_edge(parent, leaf)
         leaves = new_leaves - searched
     return graph
 
-def github_network(login, depth):
-    initial_user = github.User.fetch_single(login)
+def github_network(login, depth, cursor):
+    initial_user = github.User.fetch_login(login, cursor)
     def child_gen(user):
-        for repo in user.repos():
+        for repo in user.repos(cursor):
             if not repo.is_fork:
-                for contributor in repo.contributors():
+                print(repo)
+                for contributor in repo.contributors(cursor):
                     yield contributor
 
     def parent_gen(user): return []
 
     return network(initial_user, child_gen, parent_gen, depth)
 
-def twitter_network(screen_name, depth):
-    initial_user = twitter.User.fetch_single_screen_name(screen_name)
+def twitter_network(screen_name, depth, conn):
+    initial_user = twitter.User.fetch_single_screen_name(screen_name, conn)
 
-    def child_gen(user): return user.friends()
+    def child_gen(user): 
+        for friend in user.friends(conn):
+            if friend.follower_count < 20000 and friend.following_count < 20000:
+                yield friend
+
     def parent_gen(user): return []
 
     return network(initial_user, child_gen, parent_gen, depth)
@@ -86,6 +94,6 @@ def common_networks(n, cursor):
 with sqlite3.connect('data/data.db') as conn:
     cursor = conn.cursor()
     # g = common_graphs(20, cursor)
-    #g = github_network('dsyme', depth=2) #stack_network(2449599, cursor, depth=2)
-    # save_network(g, sys.argv[1])
-    get_three_networks('mwilliams', 23909, 'mwilliams', cursor)
+    g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
+    save_network(g, sys.argv[2])
+    # get_three_networks('mwilliams', 23909, 'mwilliams', cursor)

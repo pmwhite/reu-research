@@ -5,50 +5,48 @@ import time
 import sqlite3
 import twitter
 
-class Api:
-    def __init__(api_key, secret_key):
-        token_reponse = requests.post(
-                'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
-                auth=(api_key, secret_key)).json()
+token_reponse = requests.post(
+        'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
+        auth=(keys.TWITTER_API, keys.TWITTER_SECRET)).json()
 
-        access_token = token_reponse['access_token']
-        self.auth_headers = {'Authorization': 'Bearer ' + access_token}
+access_token = token_reponse['access_token']
+auth_headers = {'Authorization': 'Bearer ' + access_token}
 
-    def rated_request(path, params, family, resource):
-        rate_limit = requests.get(
-                'https://api.twitter.com/1.1/application/rate_limit_status.json?' + 
-                'resources=' + family,
-                headers=self.auth_headers).json()
-        rate_limit_state = rate_limit['resources'][family][resource]
+def rated_request(path, params, family, resource):
+    rate_limit = requests.get(
+            'https://api.twitter.com/1.1/application/rate_limit_status.json?' + 
+            'resources=' + family,
+            headers=auth_headers).json()
+    rate_limit_state = rate_limit['resources'][family][resource]
 
-        time_before_reset = int(rate_limit_state['reset']) - time.time()
-        requests_left = int(rate_limit_state['remaining'])
+    time_before_reset = int(rate_limit_state['reset']) - time.time()
+    requests_left = int(rate_limit_state['remaining'])
 
-        print('time left:', time_before_reset, ', requests left:', requests_left)
-        
-        if requests_left <= 1: delay_time = time_before_reset + 5
-        else: delay_time = time_before_reset / requests_left
+    print('time left:', time_before_reset, ', requests left:', requests_left)
+    
+    if requests_left <= 1: delay_time = time_before_reset + 5
+    else: delay_time = time_before_reset / requests_left
 
-        time.sleep(max(0.5,delay_time))
-        
-        return requests.get(
-                'https://api.twitter.com/1.1/' + path, 
-                params=params, headers=auth_headers)
+    time.sleep(max(0.5,delay_time))
+    
+    return requests.get(
+            'https://api.twitter.com/1.1/' + path, 
+            params=params, headers=auth_headers)
 
-    def paginate_api(path, page_property, params, family, resource):
-        cursor = -1
-        p = params.copy()
+def paginate_api(path, page_property, params, family, resource):
+    cursor = -1
+    p = params.copy()
+    p['cursor'] = cursor
+    response = rated_request(path, p, family=family, resource=resource)
+    while response.status_code == 200:
+        data = response.json()
+        for item in data[page_property]:
+            yield item
+
+        cursor = data['next_cursor_str']
+        if cursor == '0': break
         p['cursor'] = cursor
         response = rated_request(path, p, family=family, resource=resource)
-        while response.status_code == 200:
-            data = response.json()
-            for item in data[page_property]:
-                yield item
-
-            cursor = data['next_cursor_str']
-            if cursor == '0': break
-            p['cursor'] = cursor
-            response = rated_request(path, p, family=family, resource=resource)
 
 def grouper(iterable, n):
     args = [iter(iterable)] * n
@@ -70,7 +68,8 @@ def store_user(user, cursor):
     screen_name = user.get('screen_name')
 
     values = (id_num, name, location, url, screen_name)
-    cursor.execute('INSERT OR IGNORE INTO TwitterUsers VALUES(?,?,?,?,?)', values)
+    cursor.execute('INSERT OR IGNORE INTO TwitterUsers VALUES(?,?,?,?,?)',
+            values)
 
 def store_n_common(n, cursor):
     untwittered = cursor.execute('''
@@ -86,29 +85,28 @@ def store_n_common(n, cursor):
         store_user(user, cursor)
 
 class User:
-    def __init__(self, cursor, user_id, screen_name, name=None, location=None, url=None):
+
+    def __init__(self, user_id, screen_name, name, 
+            location, url, follower_count, following_count, is_searched, conn):
         self.user_id = user_id
         self.screen_name = screen_name
-
         if name == '': self.name = None
         else: self.name = name
-
         if location == '': self.location = None
         else: self.location = location
-
         if url == '': self.url = None
         else: self.url = url
-        
-        cursor.execute('INSERT INTO TwitterUsers VALUES(?,?,?,?,?)',
-                (self.user_id, self.screen_name, self.name, self.location, self.url))
-
+        self.follower_count = follower_count
+        self.following_count = following_count
+        self.is_searched = is_searched
+        self.store(conn)
 
     def __repr__(self):
-        return 'twitter.User({0}, {1}, name={2}, location={3}, url={4})'.format(
+        return 'twitter.User(user_id={0}, screen_name={1}, name={2}, location={3}, url={4})'.format(
                 self.user_id, self.screen_name, self.name, self.location, self.url)
 
     def __str__(self):
-        if self.name == None: return 'TwitterUsers({0}'.format(self.screen_name)
+        if self.name == None: return 'TwitterUsers({0})'.format(self.screen_name)
         else: return 'TwitterUsers({0}, {1})'.format(self.screen_name, self.name)
 
     def __hash__(self):
@@ -117,7 +115,7 @@ class User:
     def __eq__(self, other):
         return self.user_id == other.user_id
 
-    def get_json(self):
+    def to_json(self):
         props = [('id', self.user_id),
                  ('screenName', self.screen_name),
                  ('name', self.name),
@@ -125,73 +123,103 @@ class User:
                  ('url', self.url)]
         return dict((k, v) for k, v in props if v is not None)
 
+    def from_json(data, conn):
+        return User(
+                user_id=data['id'], 
+                screen_name=data['screen_name'], 
+                name=data['name'], 
+                location=data['location'], 
+                url=data['url'],
+                follower_count=data['followers_count'],
+                following_count=data['friends_count'],
+                is_searched=0,
+                conn=conn)
 
-
-    def from_json(data):
-        return User(data['id'], data['screen_name'], data['name'], 
-                data['location'], data['url'])
-
-    def _fetch_helper(id_type, items):
-        listed = list(items)
-        print(items)
-        for group in grouper(listed, 100):
+    def fetch_screen_names(screen_names, conn):
+        unretrieved = []
+        retrieved = []
+        for screen_name in screen_names:
+            db_response = conn.execute(
+                    'SELECT * FROM TwitterUsers WHERE ScreenName COLLATE NOCASE = ?',
+                    (screen_name,)).fetchone()
+            if db_response is not None: retrieved.append(User(*db_response, conn))
+            else: unretrieved.append(screen_name)
+        for group in grouper(unretrieved, 100):
             response = rated_request('users/lookup.json', 
-                    {id_type : ','.join(group)},
+                    {'screen_name' : ','.join(group)},
                     family='users',
                     resource='/users/lookup')
             if response.status_code == 200:
                 for data in response.json():
-                    yield User.from_json(data)
+                    retrieved.append(User.from_json(data, conn=conn))
+        return retrieved
 
+    def fetch_ids(ids, conn):
+        unretrieved = []
+        retrieved = []
+        for user_id in ids:
+            db_response = conn.execute(
+                    'SELECT * FROM TwitterUsers WHERE Id = ?',
+                    (user_id,)).fetchone()
+            if db_response is not None: retrieved.append(User(*db_response, conn))
+            else: unretrieved.append(user_id)
+        for group in grouper(unretrieved, 100):
+            response = rated_request('users/lookup.json', 
+                    {'user_id' : ','.join(group)},
+                    family='users',
+                    resource='/users/lookup')
+            if response.status_code == 200:
+                for data in response.json():
+                    retrieved.append(User.from_json(data, conn=conn))
+        return retrieved
 
+    def fetch_single_screen_name(screen_name, conn):
+        return User.fetch_screen_names([screen_name], conn)[0]
 
-    def fetch_screen_names(screen_names):
-        return User._fetch_helper('screen_name', screen_names)
+    def friends(self, conn):
+        if self.is_searched:
+            rows = conn.execute(
+                    'SELECT ToId FROM TwitterFriendships WHERE FromId = ?',
+                    (self.user_id,)).fetchall()
+            backward_rows = conn.execute(
+                    'SELECT FromId FROM TwitterFriendships WHERE ToId = ?',
+                    (self.user_id,)).fetchall()
+            rows.extend(backward_rows)
+            result = []
+            for row in rows:
+                db_response = conn.execute(
+                        'SELECT * FROM TwitterUsers WHERE Id = ?', 
+                        row).fetchone()
+                result.append(User(*db_response, conn))
+            return result
+        else:
+            params = {'screen_name' : self.screen_name,
+                    'stringify_ids': 'true'}
+            follower_ids = set(paginate_api(
+                path='followers/ids.json', 
+                page_property='ids', 
+                params=params,
+                family='followers',
+                resource='/followers/ids'))
+            following_ids = set(paginate_api(
+                path='friends/ids.json', 
+                page_property='ids', 
+                params=params,
+                family='friends',
+                resource='/friends/ids'))
+            common_ids = follower_ids.intersection(following_ids)
+            for friend_id in common_ids:
+                conn.execute(
+                        'INSERT OR REPLACE INTO TwitterFriendships VALUES(?,?)',
+                        (self.user_id, friend_id))
+            users = User.fetch_ids(common_ids, conn)
+            self.is_searched = 1
+            self.store(conn)
+            conn.commit()
+            return users
 
-    def fetch_ids(ids):
-        return User._fetch_helper('user_id', ids)
-
-    def fetch_single_screen_name(screen_name):
-        return next(User.fetch_screen_names([screen_name]))
-
-    def followers(self):
-        users = paginate_api(
-                path='followers/list.json', 
-                page_property='users',
-                params={'screen_name': self.screen_name, 'count': 100},
-                family='followers', 
-                resource='/followers/list')
-        for data in users:
-            yield User.from_json(data)
-
-
-    def following(self):
-        users = paginate_api(
-                path='friends/list.json', 
-                page_property='users',
-                params={'screen_name': self.screen_name, 'count': 100},
-                family='friends', 
-                resource='/friends/list')
-        for data in users:
-            yield User.from_json(data)
-
-    def friends(self):
-        params = {'screen_name' : self.screen_name,
-                'stringify_ids': 'true'}
-        
-        follower_ids = set(paginate_api(
-            path='followers/ids.json', 
-            page_property='ids', 
-            params={'screen_name' : self.screen_name, 'stringify_ids' : 'true'},
-            family='followers',
-            resource='/followers/ids'))
-
-        following_ids = set(paginate_api(
-            path='friends/ids.json', 
-            page_property='ids', 
-            params={'screen_name' : self.screen_name, 'stringify_ids' : 'true'},
-            family='friends',
-            resource='/friends/ids'))
-        common_ids = follower_ids.intersection(following_ids)
-        return User.fetch_ids(list(common_ids))
-
+    def store(self, conn):
+        values = (self.user_id, self.screen_name, self.name, 
+                self.location, self.url, self.follower_count, 
+                self.following_count, self.is_searched)
+        conn.execute('REPLACE INTO TwitterUsers VALUES(?,?,?,?,?,?,?,?)', values)

@@ -30,22 +30,6 @@ stretch. Perhaps a more appropriate term would be "unification" of users. Note
 that we will not be using usernames or "identity information" to perform the
 de-anonymization except as a evalidation tool.
 
-## Files
-
-None of the data used for this project are included in this repository.
-However, all of the scripts and methods of retrieval should be present with the
-exception of API keys.
-
-* `twitter.py` and `github.py` deal with calling the GitHub and Twitter APIs.
-* `stack.py` provides functions for pulling StackOverflow data from the SE data
-  dump xml files and pushing them to a sqlite database.
-* `main.py' deals with finding all the users with common usernames on the three
-  sites.
-  `vimrc` is a simple vim configuration that I like.
-* I use the [Nix Package Manager](https://nixos.org/nix/) to create
-  easily reproducible development environments. `shell.nix` contains the
-  expression for the project environment.
-
 ## Outside resources
 
 Not provided in this repository are my the API keys I used when obtaining data.
@@ -68,3 +52,17 @@ public data dump files every few months
 [here](https://archive.org/details/stackexchange). There are a lot of files for
 other networks on StackExchange, but the ones we are interested in are the
 stackoverflow posts,comments, and tags files.
+
+## Database Population
+
+An SQLite database is treated as a persistent data structure so that programs
+do not have to constantly request web APIs for the same data every time they
+are run. There are some rules that are followed to maintain consistency of the
+data in the database.
+
+Most of the times a user is accessed from a web API, it is placed into the
+database. If you access a users connections (Github contributors or Twitter
+friends), either all of them are added to the database or none of them are.
+This allows programs to tell if a users connections have are complete or not;
+if some connections are present, all of them are, and there is no need to
+request an API to refresh anything.

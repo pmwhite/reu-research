@@ -22,7 +22,6 @@ def rated_request(url, params={}):
     request_params['access_token'] = keys.GITHUB_KEY
     return requests.get(url, params=request_params)
     
-
 def request_api(path, params={}):
     return rated_request('https://api.github.com/' + path, params = params)
 
@@ -56,7 +55,6 @@ def paginate_api(path, start_params={}):
         # Break if the next page is actually the first page.
         if next_page_url == first_link:
             break
-
 
 def users_after(since_id):
     response = request_api('users', params={'since': since_id})
@@ -129,9 +127,9 @@ def fill_n_common(n, cursor):
 
 
 class User:
-    def __init__(self, user_id, login, 
+    def __init__(self, cursor, user_id, login, 
             location=None, email=None, name=None, 
-            blog=None, company=None):
+            blog=None, company=None, is_searched=0):
 
         self.user_id = user_id
         self.login = login
@@ -151,6 +149,10 @@ class User:
         if company == '': self.company = None
         else: self.company = company
 
+        self.is_searched = is_searched
+
+        self.store(cursor)
+
     def __repr__(self):
         return 'github.User({0}, {1}, location={2}, email={3}, name={4}, blog={5}, company={6})'.format(
                 self.user_id, self.login, self.location, self.email, 
@@ -167,7 +169,7 @@ class User:
     def __eq__(self, other):
         return self.user_id == other.user_id
 
-    def get_json(self):
+    def to_json(self):
         props = [('id', self.user_id),
                  ('login', self.login),
                  ('location', self.location),
@@ -177,67 +179,123 @@ class User:
                  ('company', self.company)]
         return dict((k, v) for k, v in props if v is not None)
 
-
-    def from_json(data):
-        return User(data['id'], data['login'],
+    def from_json(data, cursor):
+        return User(cursor, data['id'], data['login'],
                 location=data.get('location', None),
                 email=data.get('email', None),
                 name=data.get('name', None),
                 blog=data.get('blog', None),
                 company=data.get('company', None))
 
-    def fetch_single(login):
-        response = request_api('users/' + login)
-        if response.status_code == 200: 
-            return User.from_json(response.json())
-        else: return None
+    def fetch_login(login, cursor):
+        db_response = cursor.execute(
+                'SELECT * FROM GithubUsers WHERE Login = ?', 
+                (login,)).fetchone()
 
-    def refetch(self):
-        return User.fetch_single(self.login)
+        if db_response: return User(cursor, *db_response)
+        else:
+            response = request_api('users/' + login)
+            if response.status_code == 200: 
+                return User.from_json(response.json(), cursor)
+            else: return None
+
+    def refetch(self, cursor):
+        return User.fetch_single(self.login, cursor)
 
     def fetch_after(since_id):
-        return map(User.from_json,
-                paginate_api('users', start_params={'since': since_id}))
+            return map(User.from_json,
+                    paginate_api('users', start_params={'since': since_id}))
 
-    def repos(self):
-        items = paginate_api('users/' + self.login + '/repos')
-        # Filter on whether the repo is a fork or not
-        return map(Repo.from_json, items)
+    def repos(self, cursor):
+        if self.is_searched != 0:
+            db_response = cursor.execute(
+                'SELECT * FROM GithubRepos WHERE OwnerId = ?',
+                (self.user_id,)).fetchall()
+            return [Repo(cursor, *values) for values in db_response]
+        else: 
+            items = paginate_api('users/' + self.login + '/repos')
+            result = [Repo.from_json(cursor, data) for data in items]
+            self.is_searched = 1
+            self.store(cursor)
+            cursor.commit()
+            return result
+
+    def store(self, cursor):
+        values = (self.user_id, self.login, self.location, 
+                self.email, self.name, self.blog, self.company, 
+                self.is_searched)
+        if self.location or self.email or self.name or self.blog or self.company or self.is_searched:
+            cursor.execute('REPLACE INTO GithubUsers VALUES(?,?,?,?,?,?,?,?)', 
+                    values)
+        else:
+            cursor.execute('INSERT OR IGNORE INTO GithubUsers VALUES(?,?,?,?,?,?,?,?)',
+                    values)
 
 class Repo:
-    def __init__(self, repo_id, name, owner_login, language, is_fork, homepage=None):
+    def __init__(self, cursor, repo_id, owner_id, owner_login, name, language, is_fork, homepage=None, is_searched=0):
+
         self.repo_id = repo_id
-        self.name = name
         self.owner_login = owner_login
+        self.name = name
+        self.owner_id = owner_id
         self.language = language
 
         if homepage == '': self.homepage = None
         else: self.homepage = homepage
         self.is_fork = is_fork
 
-    def __repr__(self):
-        return 'Repo({0}, {1}, {2}, {3}, {4})'.format(
-                self.repo_id, self.name, self.language, 
-                self.homepage, self.is_fork)
+        self.is_searched = is_searched
+
+        self.store(cursor)
 
     def __str__(self):
-        if self.homepage == None:
-            return 'Repo({0}/{1}, {2})'.format(
-                    self.owner_login, self.name, self.language)
-        else: return 'Repo({0}/{1}, {2}, {3})'.format(
-                self.owner_login, self.name, self.language, self.homepage)
+        return 'Repo({0}/{1}, {2})'.format(
+                self.owner_login, self.name, self.language)
 
-    def from_json(data):
-        return Repo(data['id'], data['name'], data['owner']['login'], 
+    def from_json(cursor, data):
+        return Repo(cursor, data['id'], data['owner']['id'], data['owner']['login'], data['name'],
                 data['language'], data['fork'], homepage=data['homepage'])
 
-    def fetch(owner_login, repo_name):
+    def fetch(cursor, owner_login, repo_name):
         response = request_api('repos/' + owner_login + '/' + repo_name)
         if response.status_code == 200:
-            return Repo.from_json(response.json())
+            return Repo.from_json(cursor, response.json())
         else: return None
 
-    def contributors(self):
-        return map(User.from_json,
-                paginate_api(
-                    'repos/' + self.owner_login + '/' + self.name + '/contributors'))
+    def contributors(self, cursor):
+        if self.is_searched:
+            db_response = cursor.execute(
+                    'SELECT UserId FROM GithubContributions WHERE RepoId = ?', 
+                    (self.repo_id,))
+
+            result = []
+            for row in db_response:
+                values = cursor.execute(
+                    'SELECT * FROM GithubUsers WHERE Id = ?',
+                    row).fetchone()
+                result.append(User(cursor, *values))
+            return result
+
+        else:
+            items = paginate_api(
+                    'repos/' + self.owner_login + 
+                    '/' + self.name + '/contributors')
+
+            result = []
+            for data in items:
+                user = User.from_json(data, cursor)
+                cursor.execute('INSERT OR REPLACE INTO GithubContributions VALUES(?,?)',
+                        (user.user_id, self.repo_id))
+                result.append(user)
+
+            self.is_searched = 1
+            self.store(cursor)
+            cursor.commit()
+            return result
+
+    def store(self, cursor):
+        values = (self.repo_id, self.owner_id, self.owner_login, self.name, 
+                self.language, self.is_fork, self.homepage, 
+                self.is_searched)
+        cursor.execute('REPLACE INTO GithubRepos VALUES(?,?,?,?,?,?,?,?)',
+                values)
