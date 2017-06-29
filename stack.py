@@ -3,62 +3,40 @@ import itertools
 import sqlite3
 import time
 import re
+from misc import clean_str
 
-# An iterator of all the children of a given xml file. The file is
-# assumed to be of depth 1, since the StackExchange data dump files also
-# have depth.
 def xml_children(filename):
     for event, child in ET.iterparse(filename):
         if event == 'end' and child.tag == 'row':
             yield child.attrib
         child.clear()
 
-
-# Deletes all tag data from the database and reloads it from the xml file.
 def reload_tags(cursor):
-
     print('Deleting tag data')
     cursor.execute('DELETE FROM StackTags')
-
-    # Get the iterator of value tuples to pass to the SQL engine.
     children = xml_children('data/Tags.xml')
     values = ((child['Id'], child['TagName'], child['Count']) 
             for child in children)
-
     print('Loading tag data')
     cursor.executemany('INSERT INTO StackTags VALUES(?, ?, ?)', values)
 
-
 # Deletes all user data from the database and reloads it from the xml file.
 def reload_users(cursor):
-
-    print('Deleting user data')
     cursor.execute('DELETE FROM StackUsers')
-
-    # Get the tuple generator to feed into the SQL engine.
     children = xml_children('data/Users.xml')
     def values():
-        count = 0
-        for child in children:
-            # Grab various attributes; make sure the account id is valid, and
-            # replace empty strings with NULL. Note that 'None' in python is
-            # NULL in SQL.
+        for count, child in enumerate(children):
             user_id = child.get('Id', None)
             if user_id == None: continue
             display_name = child['DisplayName']
             reputation = child['Reputation']
-            website_url = child.get('WebsiteUrl', None)
-            if website_url == '': website_url = None
+            website_url = clean_str(child.get('WebsiteUrl', None))
             age = child.get('Age', None)
-            location = child.get('Location', None)
-            if location == '': location = None
+            location = clean_str(child.get('Location', None))
             yield (user_id, display_name, reputation, 
                     website_url, age, location)
-            count = count + 1
             if count % 10000 == 0: print(count, 'lines processed')
     print('Loading user data')
-
-    # Ignore insertion if the account id is a duplicate.
     cursor.executemany(
             'INSERT OR IGNORE INTO StackUsers VALUES(?, ?, ?, ?, ?, ?)', 
             values())
@@ -66,33 +44,24 @@ def reload_users(cursor):
 def reload_comments(cursor):
     print('Deleting comment data')
     cursor.execute('DELETE FROM StackComments')
-
     children = xml_children('data/Comments.xml')
-
     print('Loading comment data')
     def values():
-        count = 0
-        for child in children:
+        for count, child in enumerate(children):
             if child.get('UserId', None) == None:
                 continue
             yield ((child['Id'], child['PostId'], child['Score'], child['UserId']))
-            count += 1
             if count % 100000 == 0: print(count / 1000000.0)
-
     cursor.executemany('INSERT INTO StackComments VALUES(?,?,?,?)', values())
 
 def reload_posts(cursor):
     print('Deleting post data')
     cursor.execute('DELETE FROM StackPosts')
-
     children = xml_children('data/Posts.xml')
-
     tag_data = dict(
             cursor.execute('SELECT TagName, Id FROM StackTags').fetchmany(100000))
-
     print('Loading post data')
-    count = 0
-    for child in children:
+    for count, child in enumerate(children):
         post_id = child['Id']
         post_type = child['PostTypeId']
         score = child['Score']
@@ -102,7 +71,6 @@ def reload_posts(cursor):
         cursor.execute('INSERT INTO StackPosts VALUES(?,?,?,?,?,?)',
                 (post_id, post_type, score, owner_user_id, 
                     accepted_answer_id, parent_id))
-
         tags_str = child.get('Tags', None)
         if tags_str:
             tags = re.findall('<(.*?)>', tags_str)
@@ -110,8 +78,6 @@ def reload_posts(cursor):
                 tag_id = tag_data[tag]
                 cursor.execute('INSERT INTO StackTagAssignments VALUES(?,?)',
                     (post_id, tag_id))
-
-        count = count + 1
         if count % 10000 == 0: print(count / 1000000.0)
 
 class User:

@@ -33,13 +33,13 @@ def network(init, child_gen, parent_gen, depth):
         leaves = new_leaves - searched
     return graph
 
-def github_network(login, depth, cursor):
-    initial_user = github.User.fetch_login(login, cursor)
+def github_network(login, depth, conn):
+    initial_user = github.User.gen_fetch_login(login, conn)
     def child_gen(user):
-        for repo in user.repos(cursor):
+        for repo in user.repos(conn):
+            print(repo)
             if not repo.is_fork:
-                print(repo)
-                for contributor in repo.contributors(cursor):
+                for contributor in repo.contributors(conn):
                     yield contributor
 
     def parent_gen(user): return []
@@ -51,7 +51,7 @@ def twitter_network(screen_name, depth, conn):
 
     def child_gen(user): 
         for friend in user.friends(conn):
-            if friend.follower_count < 20000 and friend.following_count < 20000:
+            if friend.follower_count < 100 and friend.following_count < 100:
                 yield friend
 
     def parent_gen(user): return []
@@ -79,7 +79,7 @@ def get_three_networks(username, stack_id, out_dir, cursor):
     save_network(github_graph, out_dir + '/github.gml')
 
 
-def common_networks(n, cursor):
+def common_networks(n, conn):
     common_users = cursor.execute('''
         SELECT gtu.Login, su.Id FROM GithubTwitterUsers gtu
         JOIN StackUsers su ON gtu.Login = su.DisplayName
@@ -88,12 +88,13 @@ def common_networks(n, cursor):
     print('fetched')
 
     for (common_username, stack_id) in common_users:
-        get_three_networks
+        get_three_networks(common_username, stack_id, 
+                out_dir + '/' + common_username, conn)
     
 
 with sqlite3.connect('data/data.db') as conn:
     cursor = conn.cursor()
     # g = common_graphs(20, cursor)
-    g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
+    g = github_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
     save_network(g, sys.argv[2])
     # get_three_networks('mwilliams', 23909, 'mwilliams', cursor)
