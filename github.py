@@ -49,30 +49,6 @@ def users_after(since_id):
             yield user
         response = request_api('users', params={'since': last_id})
 
-def store_n(n, cursor):
-    last_id = str(cursor.execute('SELECT MAX(Id) FROM GithubUsers').fetchone()[0])
-    if last_id == None: 
-        last_id = "0"
-    for user in itertools.islice(users_after(last_id), n):
-        store_shallow(user, cursor)
-
-def fill_n_common(n, cursor):
-    unfilled_common = cursor.execute('''
-        SELECT Login FROM GithubUsers gu
-        JOIN TwitterUsers tu ON gu.Login = tu.ScreenName
-        WHERE gu.Location is NULL
-        AND gu.Email is NULL
-        AND gu.Name is NULL
-        AND gu.Blog is NULL
-        AND gu.Company is NULL
-        ''').fetchmany(n)
-
-    print(unfilled_common)
-
-    for row in unfilled_common:
-        User.gen_fetch_login(row[0], conn)
-
-
 class User:
     def __init__(self, user_id, login, 
             location, email, name, 
@@ -132,7 +108,6 @@ class User:
         user.ensure_storage(conn)
         return user
 
-
     def repos(self, conn):
         if self.is_searched != 0:
             db_response = conn.execute(
@@ -187,7 +162,7 @@ class User:
             return User.api_fetch_login(login, conn)
 
     def db_fetch_id(user_id, conn):
-        db_response = cursor.execute(
+        db_response = conn.execute(
                 'SELECT * FROM GithubUsers WHERE Id = ?', 
                 (user_id,)).fetchone()
         if db_response: 

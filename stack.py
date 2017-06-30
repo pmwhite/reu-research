@@ -104,7 +104,7 @@ class User:
     def __eq__(self, other):
         return self.user_id == other.user_id
 
-    def get_json(self):
+    def to_json(self):
         props = [('id', self.user_id),
                  ('displayName', self.display_name),
                  ('reputation', self.reputation),
@@ -124,7 +124,7 @@ class User:
         users = cursor.execute(
                 'SELECT * FROM StackUsers WHERE DisplayName = ?',
                 (display_name,)).fetchall()
-        return (User(*values) for values in users)
+        return [User(*values) for values in users]
 
     def answerers(self, cursor):
         answerers = cursor.execute('''
