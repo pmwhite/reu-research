@@ -1,10 +1,14 @@
 import requests
 import time
+import datetime
 import sqlite3
 import itertools
 import keys
 import re
+import misc
 from misc import clean_str
+from datetime import datetime
+from collections import namedtuple
 
 def rated_request(url, params={}):
     rate_limit_info = requests.get(
@@ -18,218 +22,274 @@ def rated_request(url, params={}):
     request_params = params.copy()
     request_params['access_token'] = keys.GITHUB_KEY
     return requests.get(url, params=request_params)
-    
-def request_api(path, params={}):
-    return rated_request('https://api.github.com/' + path, params = params)
 
-def paginate_api(path, start_params={}):
-    response = request_api(path, params=start_params)
-    def next_page_link():
-        link = response.headers.get('Link', None)
-        if link == None:
-            return None
-        else: return re.findall('<(.*?)>', link)[0].strip('<').strip('>')
-    next_page_url = next_page_link()
-    first_link = next_page_url
-    while response.status_code == 200:
-        for item in response.json():
-            yield item
-        if not next_page_url: break
-        response = rated_request(next_page_url)
-        next_page_url = next_page_link()
-        if next_page_url == first_link:
-            break
+def graphql_request(query):
+    def make_request():
+        print(query)
+        return requests.post(
+                url='https://api.github.com/graphql',
+                params={'access_token': keys.GITHUB_KEY},
+                json={'query': query})
+    def extract_rate_info(response):
+        print(response.json())
+        info = response.json()['data']['rateLimit']
+        reset_time = datetime.strptime(
+                info['resetAt'], 
+                '%Y-%m-%dT%H:%M:%SZ').timestamp()
+        requests_left = info['remaining']
+        return (reset_time, requests_left)
+    return misc.rated_request(make_request, extract_rate_info)
 
-def users_after(since_id):
-    response = request_api('users', params={'since': since_id})
-    last_id = since_id
-    while response.status_code == 200:
-        for user in response.json():
-            last_id = user['id']
-            yield user
-        response = request_api('users', params={'since': last_id})
+def paginate_gql_connection(baseQuery, nodes_path):
+    def make_request(cursor):
+        cursor_str = ''
+        if cursor is not None:
+            cursor_str = 'after: "%s"' % cursor
+        return graphql_request(baseQuery % cursor_str)
+    def extract_cursor(response):
+        data = response.json()['data']
+        for path_item in nodes_path:
+            data = data[path_item]
+        page_info = data['pageInfo']
+        if page_info['hasNextPage']:
+            return page_info['endCursor']
+    def extract_items(response):
+        data = response.json()['data']
+        for path_item in nodes_path:
+            data = data[path_item]
+        for node in data['nodes']:
+            yield node
+    return misc.paginate_api(make_request, extract_cursor, extract_items)
 
-class User:
-    def __init__(self, user_id, login, 
-            location, email, name, 
-            blog, company, is_searched):
-        self.user_id = user_id
-        self.login = login
-        self.location = clean_str(location)
-        self.email = clean_str(email)
-        self.name = clean_str(name)
-        self.blog = clean_str(blog)
-        self.company = clean_str(company)
-        self.is_searched = is_searched
+User = namedtuple('User', 'id login location email name website_url company')
+Repo = namedtuple('Repo', 'id owner_id owner_login name language homepage is_fork')
 
-    def __repr__(self):
-        return 'github.User({0}, {1}, location={2}, email={3}, name={4}, blog={5}, company={6})'.format(
-                self.user_id, self.login, self.location, self.email, 
-                self.name, self.blog, self.company)
+# Dict -> User
+def user_from_json(data):
+    return User(
+            id=data['id'],
+            login=data['login'],
+            location=clean_str(data.get('location', None)),
+            email=clean_str(data.get('email', None)),
+            name=clean_str(data.get('name', None)),
+            website_url=clean_str(data.get('websiteUrl', None)),
+            company=clean_str(data.get('company', None)))
 
-    def __str__(self): 
-        if self.name == None:
-            return 'GithubUser({0})'.format(self.login)
-        else: return 'GithubUser({0}, {1})'.format(self.login, self.name)
+# User -> Dict
+def user_to_json(user):
+    return {'id': user.id,
+            'login': user.login,
+            'location': user.location,
+            'email': user.email,
+            'websiteUrl': user.website_url,
+            'company': user.company}
 
-    def __hash__(self):
-        return self.user_id
+# Dict -> Repo
+def repo_from_json(data):
+    if data['primaryLanguage'] is not None:
+        language = data['primaryLanguage']['name']
+    else:
+        language = None
+    return Repo(
+            id=data['id'],
+            owner_id=data['owner']['id'],
+            owner_login=data['owner']['login'],
+            name=data['name'],
+            language=language,
+            is_fork=data['isFork'],
+            homepage=data['homepageUrl'])
 
-    def __eq__(self, other):
-        return self.user_id == other.user_id
+# Repo -> Dict
+def repo_to_json(repo):
+    return {'id': repo.id,
+            'ownerId': repo.owner_id,
+            'ownerLogin': repo.owner_login,
+            'name': repo.name,
+            'language': repo.language,
+            'isFork': repo.is_fork,
+            'homepage': repo.homepageUrl}
 
-    def to_json(self):
-        props = [('id', self.user_id),
-                 ('login', self.login),
-                 ('location', self.location),
-                 ('email', self.email),
-                 ('name', self.name),
-                 ('blog', self.blog),
-                 ('company', self.company)]
-        return dict((k, v) for k, v in props if v is not None)
+# String -> String
+def clean_login(login):
+    return '_' + login.replace('-', '_a_b_c_d_e_f_g_h_')
 
-    def from_json(data, conn):
-        user_id = data['id']
-        is_searched_row = conn.execute(
-                'SELECT IsSearched FROM GithubUsers WHERE Id = ?',
-                (user_id,)).fetchone()
-        is_searched = 0
-        if is_searched_row is not None:
-            is_searched = is_searched_row[0]
-        user = User(
-                user_id=user_id,
-                login=data['login'],
-                location=data.get('location', None),
-                email=data.get('email', None),
-                name=data.get('name', None),
-                blog=data.get('blog', None),
-                company=data.get('company', None),
-                is_searched=is_searched)
-        user.ensure_storage(conn)
+# String list -> Map<String, User option>
+def user_fetch_logins_api(logins):
+    user_snippet = '''
+        %s:repositoryOwner(login: "%s") {{ 
+            login 
+            id 
+            ... on User {{
+                location email name websiteUrl company 
+            }}
+        }}'''
+    rate_snippet = 'rateLimit { remaining resetAt cost }'
+    for login_group in misc.grouper(logins, 100):
+        users_snippet = '\n'.join(
+                [user_snippet % (clean_login(login), login) for login in login_group])
+        query_str = 'query {\n%s\n%s}' % (users_snippet, rate_snippet)
+        response = graphql_request(query_str)
+        data = response.json()['data']
+        print(data)
+        for login in login_group:
+            json = data[clean_login(login)]
+            yield user_from_json(json)
+
+# String -> User option
+def user_fetch_login_api(login):
+    return next(user_fetch_logins_api([login]))
+
+# String -> DB -> User option
+def user_fetch_login_db(login, conn):
+    db_response = conn.execute(
+            'SELECT * FROM GithubUsers WHERE Login = ?', 
+            (login,)).fetchone()
+    if db_response:
+        return User(*db_response)
+
+def user_fetch_login(login, conn):
+    db = user_fetch_login_db(login, conn)
+    if db is not None:
+        return db
+    else:
+        user = user_fetch_login_api(login)
+        store_user(None, user, conn)
         return user
 
-    def repos(self, conn):
-        if self.is_searched != 0:
-            db_response = conn.execute(
-                'SELECT * FROM GithubRepos WHERE OwnerId = ?',
-                (self.user_id,)).fetchall()
-            for values in db_response:
-                yield Repo(*values)
-        else: 
-            for data in paginate_api('users/' + self.login + '/repos', 
-                    start_params={'per_page':100}):
-                yield Repo.from_json(data, conn)
-            self.is_searched = 1
-            conn.execute(
-                    'UPDATE GithubUsers SET IsSearched = 1 WHERE Id = ?',
-                    (self.user_id,))
-            conn.commit()
+def user_repos_api(user):
+    baseQuery = '''
+        query { 
+            rateLimit { remaining resetAt cost }
+            repositoryOwner(login: "''' + user.login + '''") {
+                repositories(first: 100, %s) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes {
+                        id
+                        owner { id login }
+                        name
+                        primaryLanguage { name }
+                        homepageUrl
+                        isFork
+                    }
+                }
+            }
+        }'''
+    for item in paginate_gql_connection(baseQuery, ['repositoryOwner', 'repositories']):
+        repo = repo_from_json(item)
+        if repo.owner_id == user.id:
+            yield repo
 
-    def ensure_storage(self, conn):
-        values = (self.user_id, self.login, self.location, 
-                self.email, self.name, self.blog, self.company, 
-                self.is_searched)
-        conn.execute(
-                'INSERT OR IGNORE INTO GithubUsers VALUES(?,?,?,?,?,?,?,?)',
-                values)
+def user_repos_db(user, conn):
+    db_response = conn.execute(
+        'SELECT * FROM GithubRepos WHERE OwnerId = ?',
+        (user.id,)).fetchall()
+    for values in db_response:
+        yield Repo(*values)
 
-    def refill(self, conn):
-        user = User.api_fetch_login(self.login)
-        update_values = (user.location, user.email, user.name, 
-                user.blog, user.company, self.user_id)
-        conn.execute('''
-                UPDATE GithubUsers SET Location = ?, Email = ?, Name = ?, Blog = ?, Company = ?
-                WHERE Id = ?''',
-                update_values)
+def store_user(_, user, conn):
+    values = (user.id, user.login, user.location, 
+            user.email, user.name, user.website_url, user.company)
+    conn.execute(
+            'INSERT OR IGNORE INTO GithubUsers VALUES(?,?,?,?,?,?,?)',
+            values)
 
-    def api_fetch_login(login, conn):
-        response = request_api('users/' + login)
-        if response.status_code == 200: 
-            return User.from_json(response.json(), conn)
+def store_repo(_, repo, conn):
+    values = (repo.id, repo.owner_id, repo.owner_login, repo.name, 
+            repo.language, repo.is_fork, repo.homepage)
+    conn.execute(
+            'INSERT OR IGNORE INTO GithubRepos VALUES(?,?,?,?,?,?,?)',
+            values)
 
-    def db_fetch_login(login, conn):
-        db_response = conn.execute(
-                'SELECT * FROM GithubUsers WHERE Login = ?', 
-                (login,)).fetchone()
-        if db_response: 
-            return User(*db_response)
+def store_repo_contributor(repo, contributor, conn):
+    store_user(repo, contributor, conn)
+    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
+            (contributor.id, repo.id))
 
-    def gen_fetch_login(login, conn):
-        db = User.db_fetch_login(login, conn)
-        if db is not None:
-            return db
-        else:
-            return User.api_fetch_login(login, conn)
+user_repos = misc.CachedSearch(
+        db_fetch=user_repos_db,
+        api_fetch=user_repos_api,
+        store=store_repo,
+        search_type='github:repository')
 
-    def db_fetch_id(user_id, conn):
-        db_response = conn.execute(
-                'SELECT * FROM GithubUsers WHERE Id = ?', 
-                (user_id,)).fetchone()
-        if db_response: 
-            return User(*db_response)
+def repo_contributors_db(repo, conn):
+    id_rows = conn.execute(
+            'SELECT UserId FROM GithubContributions WHERE RepoId = ?', 
+            (repo.id,)).fetchall()
+    for row in id_rows:
+        values = conn.execute(
+            'SELECT * FROM GithubUsers WHERE Id = ?',
+            row).fetchone()
+        yield User(*values)
 
-    def fetch_after(since_id, conn):
-        for item in paginate_api('users', start_params={'since': since_id}):
-            yield User.from_json(item, conn)
+def repo_contributors_api(repo):
+    baseQuery = '''
+        query {
+            rateLimit { remaining resetAt cost }
+            repository(name: \"''' + repo.name + '\", owner: \"' + repo.owner_login + '''\") {
+                mentionableUsers(first:100, %s) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes {
+                        id login location email name websiteUrl company
+                    }
+                }
+            }
+        }'''
+    for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers']):
+        yield user_from_json(item)
 
-class Repo:
-    def __init__(self, repo_id, owner_id, owner_login, name, 
-            language, is_fork, homepage, is_searched):
-        self.repo_id = repo_id
-        self.owner_login = owner_login
-        self.name = name
-        self.owner_id = owner_id
-        self.language = language
-        self.homepage = clean_str(homepage)
-        self.is_fork = is_fork
-        self.is_searched = is_searched
+repo_contributors = misc.CachedSearch(
+        db_fetch=repo_contributors_db,
+        api_fetch=repo_contributors_api,
+        store=store_repo_contributor,
+        search_type='github:contributor')
 
-    def __str__(self):
-        return 'Repo({0}/{1}, {2})'.format(
-                self.owner_login, self.name, self.language)
+def user_contributed_repos_db(user, conn):
+    id_rows = conn.execute(
+            'SELECT RepoId FROM GithubContributions WHERE UserId = ?', 
+            (user.id,)).fetchall()
+    for row in id_rows:
+        values = conn.execute(
+            'SELECT * FROM GithubRepos WHERE Id = ?',
+            row).fetchone()
+        yield Repo(*values)
 
-    def from_json(data, conn):
-        repo = Repo(
-                repo_id=data['id'],
-                owner_id=data['owner']['id'], 
-                owner_login=data['owner']['login'], 
-                name=data['name'],
-                language=data['language'], 
-                is_fork=data['fork'], 
-                homepage=data['homepage'],
-                is_searched=0)
-        repo.ensure_storage(conn)
-        return repo
+def user_contributed_repos_api(user):
+    isUserQuery = '''
+        query {
+            repositoryOwner(login: "''' + user.login + '''") {
+                __typename
+            }
+            rateLimit { remaining resetAt }
+        }'''
+    if graphql_request(isUserQuery).json()['data']['repositoryOwner']['__typename'] == 'User':
+        baseQuery = '''
+            query { 
+                rateLimit { remaining resetAt cost }
+                user(login: "''' + user.login + '''") {
+                    contributedRepositories(first: 100, %s) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            id
+                            owner { id login }
+                            name
+                            primaryLanguage { name }
+                            homepageUrl
+                            isFork
+                        }
+                    }
+                }
+            }'''
+        for item in paginate_gql_connection(
+                baseQuery, ['user', 'contributedRepositories']):
+            yield repo_from_json(item)
 
-    def contributors(self, conn):
-        if self.is_searched:
-            id_rows = conn.execute(
-                    'SELECT UserId FROM GithubContributions WHERE RepoId = ?', 
-                    (self.repo_id,)).fetchall()
-            for row in id_rows:
-                values = conn.execute(
-                    'SELECT * FROM GithubUsers WHERE Id = ?',
-                    row).fetchone()
-                yield User(*values)
-        else:
-            items = paginate_api(
-                    'repos/' + self.owner_login + 
-                    '/' + self.name + 
-                    '/contributors')
-            for data in items:
-                user = User.from_json(data, conn)
-                conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
-                        (user.user_id, self.repo_id))
-                yield user
-            self.is_searched = 1
-            conn.execute(
-                    'UPDATE GithubRepos SET IsSearched = 1 WHERE Id = ?',
-                    (self.repo_id,))
-            conn.commit()
+def store_user_contributed_repo(user, contributed_repo, conn):
+    store_repo(user, contributed_repo, conn)
+    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
+            (user.id, contributed_repo.id))
 
-    def ensure_storage(self, conn):
-        values = (self.repo_id, self.owner_id, self.owner_login, self.name, 
-                self.language, self.is_fork, self.homepage, self.is_searched)
-        conn.execute(
-                'INSERT OR IGNORE INTO GithubRepos VALUES(?,?,?,?,?,?,?,?)',
-                values)
+user_contributed_repos = misc.CachedSearch(
+        db_fetch=user_contributed_repos_db,
+        api_fetch=user_contributed_repos_api,
+        store=store_user_contributed_repo,
+        search_type='github:contributed_repository')

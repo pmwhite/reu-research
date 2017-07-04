@@ -6,6 +6,7 @@ filetype plugin indent on
 syntax on
 
 "" Appearance
+colorscheme molokai
 
 " Gvim settings
 set guioptions-=T
@@ -35,3 +36,6 @@ inoremap jk <esc>
 
 " Backspace everything
 set backspace=indent,eol,start
+
+" Mouse support
+set mouse=a
