@@ -3,7 +3,7 @@ import itertools
 import sqlite3
 import time
 import re
-from misc import clean_str
+from misc import clean_str_key
 
 def xml_children(filename):
     for event, child in ET.iterparse(filename):
@@ -30,9 +30,9 @@ def reload_users(cursor):
             if user_id == None: continue
             display_name = child['DisplayName']
             reputation = child['Reputation']
-            website_url = clean_str(child.get('WebsiteUrl', None))
+            website_url = clean_str_key(child, 'WebsiteUrl')
             age = child.get('Age', None)
-            location = clean_str(child.get('Location', None))
+            location = clean_str_key(child, 'Location')
             yield (user_id, display_name, reputation, 
                     website_url, age, location)
             if count % 10000 == 0: print(count, 'lines processed')
@@ -117,7 +117,6 @@ class User:
         values = cursor.execute(
                 'SELECT * FROM StackUsers WHERE Id = ?',
                 (user_id,)).fetchone()
-        print(values)
         return User(*values)
 
     def fetch_display_name(display_name, cursor):

@@ -2,34 +2,64 @@ import github
 import stack
 import twitter
 import sqlite3
+from itertools import groupby
+from itertools import islice
 import itertools
 from misc import grouper
 
-def find_common_users(conn):
-    (last_github_id,) = conn.execute(
-            'SELECT Value FROM Dict WHERE Key = "next github id"').fetchone()
-    print(last_github_id)
-    prev_github_twitter_rows = conn.execute('''
-            SELECT gu.Id, tu.Id, gu.Login FROM GithubUsers gu
-            JOIN TwitterUsers tu ON gu.Login = tu.ScreenName
-            WHERE gu.Id < ?
-            ''', (last_github_id,))
-    for (github_id, twitter_id, common_name) in prev_github_twitter_rows:
-        github_user = github.User.db_fetch_id(github_id, conn)
-        twitter_user = twitter.User.db_fetch_id(twitter_id, conn)
-        stack_users = stack.User.fetch_display_name(common_name, conn)
-        yield (github_user, twitter_user, stack_users)
-    next_github_users = github.User.fetch_after(last_github_id, conn)
-    for group in grouper(next_github_users, 100):
-        github_group = list(group)
-        github_logins = [user.login for user in github_group]
-        twitter_parallels = list(twitter.User.fetch_screen_names(github_logins, conn))
-        for github_user in github_group:
-            for twitter_user in twitter_parallels:
-                if github_user.login == twitter_user.screen_name:
-                    stack_users = stack.User.fetch_display_name(github_user.login, conn)
-                    yield (github_user, twitter_user, stack_users)
-        conn.execute(
-                'UPDATE Dict SET Value = ? WHERE Key = "next github id"',
-                (github_group[-1].user_id,))
-        conn.commit()
+def find_potential_common_users(conn):
+    prev_rows = conn.execute('''
+            SELECT su.*, tu.*, gu.* FROM StackUsers su
+            JOIN TwitterUsers tu ON su.DisplayName = tu.ScreenName
+            JOIN GithubUsers gu ON gu.Login = tu.ScreenName
+            JOIN Dict WHERE su.DisplayName <= Dict.Value''')
+    user_triples = ((stack.User(*row[0:6]), 
+        twitter.User(*row[6:13]), 
+        github.User(*row[13:20]))
+        for row in prev_rows)
+    grouped_triples = ((list(triple[0] for triple in triples), t_user, g_user) 
+            for (t_user, g_user), triples in groupby(user_triples, lambda triple: triple[1:3]))
+    for x in grouped_triples:
+        yield x
+    stack_rows = conn.execute('''
+            SELECT su.* FROM StackUsers su
+            JOIN Dict WHERE su.DisplayName > Dict.Value
+            ORDER BY su.DisplayName''')
+    stack_users = (stack.User(*row) for row in stack_rows)
+    grouped_stack_users = ((k, list(vs)) 
+            for k, vs in groupby(stack_users, lambda user: user.display_name))
+    for group in grouper(grouped_stack_users, 400):
+        cleaned_group = [(dn, users) for dn, users in group if ' ' not in dn]
+        display_names = [dn for dn, _ in cleaned_group]
+        stack_users_groups = {dn: users for dn, users in cleaned_group}
+        twitter_users = twitter.user_fetch_screen_names(display_names, conn)
+        github_users = github.user_fetch_logins(display_names, conn)
+        for dn in display_names:
+            su = stack_users_groups[dn]
+            tu = twitter_users[dn]
+            gu = github_users[dn]
+            if su is not None and tu is not None and gu is not None:
+                yield (su, tu, gu)
+            conn.execute('UPDATE Dict SET Value = ?', (dn,))
+
+def triple_rating(s, t, g):
+    rating = 0
+    if s.display_name == t.name and g.name == t.name:
+        rating += 1
+    if s.location == t.location and g.location == t.location and s.location is not None:
+        rating += 1
+    return rating
+
+def best_triples(conn):
+    potentials = find_potential_common_users(conn)
+    for (s_users, t, g) in potentials:
+        triples = [(s, t, g) for s in s_users]
+        yield max(triples, key=lambda triple: triple_rating(*triple))
+
+def good_triples(conn):
+    return (triple for triple in best_triples(conn) if triple_rating(*triple) > 1)
+
+def filtered(conn):
+    for (s_users, t, g) in find_potential_common_users(conn):
+        if len(s_users) == 1 and s_users[0].display_name == t.name and t.name == g.name:
+            yield (s_users[0], t, g)

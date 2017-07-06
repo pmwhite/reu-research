@@ -6,6 +6,7 @@ import sys
 import sqlite3
 import os
 import github
+import common
 
 def save_network(graph, filename):
     nx.write_gml(graph, filename, stringizer=str)
@@ -13,10 +14,12 @@ def save_network(graph, filename):
 def network(init, child_gen, parent_gen, transform_leaves, serialize, depth):
     graph = nx.DiGraph()
     searched = set()
+    graph.add_node(hash(init), attr_dict=serialize(init))
     leaves = [init]
     for curr_depth in range(depth):
         print('=================================== depth', curr_depth)
         new_leaves = set()
+        print(leaves)
         transformed_leaves = list(transform_leaves(leaves))
         leaf_count = len(transformed_leaves)
         print('leaves',transformed_leaves)
@@ -69,7 +72,10 @@ def twitter_network(screen_name, depth, conn):
     def transform_leaves(leaves):
         sorted_leaves =  list(sorted(leaves, 
             key=lambda f: max(f.follower_count, f.following_count)))
-        return sorted_leaves[0:100]
+        midpoint = int(len(sorted_leaves) / 2)
+        s = max(midpoint - 25, 0)
+        e = max(midpoint + 25, len(sorted_leaves))
+        return sorted_leaves[s:e]
     return network(initial_user, child_gen, parent_gen, transform_leaves, twitter.user_to_json, depth)
 
 def stack_network(user_id, depth, conn):
@@ -77,35 +83,44 @@ def stack_network(user_id, depth, conn):
     def child_gen(user): return user.questioners(conn)
     def parent_gen(user): return user.answerers(conn)
     def transform_leaves(leaves): return leaves
-    return network(initial_user, child_gen, parent_gen, transform_leaves, depth)
+    return network(initial_user, child_gen, parent_gen, transform_leaves, stack.User.to_json, depth)
 
-
-def get_three_networks(username, stack_id, out_dir, onn):
-    print('==========', username, '==========')
-    os.mkdir(out_dir)
-    print('---------- stackoverflow graph ----------', stack_id)
-    stack_graph = stack_network(stack_id, depth=2, conn=conn)
-    save_network(stack_graph, out_dir + '/stack.gml')
-    print('---------- twitter graph ----------')
-    twitter_graph = twitter_network(username, depth=2, conn=conn)
-    save_network(twitter_graph, out_dir + '/twitter.gml')
-    print('---------- github graph ----------')
-    github_graph = github_network(username, depth=2, conn=conn)
-    save_network(github_graph, out_dir + '/github.gml')
-
+def get_three_networks(username, stack_id, out_dir, conn):
+    print('=' * 80, username, '=' * 80)
+    print('-' * 80, 'stackoverflow graph', '-' * 80)
+    stack_file = out_dir + '/stack.gml'
+    if not os.path.exists(stack_file):
+        stack_graph = stack_network(stack_id, depth=2, conn=conn)
+        save_network(stack_graph, stack_file)
+    else:
+        print('file already exists')
+    print('-' * 80, 'twitter graph', '-' * 80)
+    twitter_file = out_dir + '/twitter.gml'
+    if not os.path.exists(twitter_file):
+        twitter_graph = twitter_network(username, depth=2, conn=conn)
+        save_network(twitter_graph, twitter_file)
+    else:
+        print('file already exists')
+    print('-' * 80, 'github graph', '-' * 80)
+    github_file = out_dir + '/github.gml'
+    if not os.path.exists(github_file):
+        github_graph = github_network(username, depth=2, conn=conn)
+        save_network(github_graph, github_file)
+    else:
+        print('file already exists')
 
 def common_networks(out_dir, conn):
-    os.mkdir(out_dir)
-    for (github_user, twitter_user, stack_users) in common.find_common_users(conn):
-        if len(stack_users) == 1:
-            get_three_networks(github_user.login, stack_users[0].user_id, out_dir + '/' + github_user.login, conn)
-
-
-    
+    if not os.path.isdir(out_dir):
+        os.mkdir(out_dir)
+    for (s_user, t_user, g_user) in common.filtered(conn):
+        target_dir = out_dir + '/' + g_user.login
+        if not os.path.exists(target_dir):
+            os.mkdir(target_dir)
+        get_three_networks(g_user.login, s_user.user_id, target_dir, conn)
 
 with sqlite3.connect('data/data.db') as conn:
     # g = common_graphs(20, cursor)
-    g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
-    save_network(g, sys.argv[2])
+    # g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
+    # save_network(g, sys.argv[2])
     # get_three_networks('mwilliams', 23909, 'mwilliams', cursor)
-    # common_networks('outputs', conn)
+    common_networks('outputs', conn)
