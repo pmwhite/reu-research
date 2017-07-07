@@ -28,7 +28,7 @@ def paginate_api(make_request, extract_cursor, extract_items):
     while response.status_code == 200:
         for item in extract_items(response):
             yield item
-        if not next_cursor:
+        if next_cursor is None:
             break
         response = make_request(next_cursor)
         next_cursor = extract_cursor(response)

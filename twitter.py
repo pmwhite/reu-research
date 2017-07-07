@@ -15,7 +15,7 @@ token_reponse = requests.post(
 access_token = token_reponse['access_token']
 auth_headers = {'Authorization': 'Bearer ' + access_token}
 
-def rated_request(path, params, family, resource):
+def rated_request(path, params):
     def make_request():
         return requests.get(
                 'https://api.twitter.com/1.1/' + path, 
@@ -27,26 +27,30 @@ def rated_request(path, params, family, resource):
             requests_left = int(headers['x-rate-limit-remaining'])
             return (reset_time, requests_left)
         except:
-            print(reponse.headers)
+            print(response.headers)
             print(response.json())
             raise 'issues with rate limit'
     return misc.rated_request(make_request, extract_rate_info)
 
-def paginate_api(path, page_property, params, family, resource):
-    cursor = -1
-    p = params.copy()
-    p['cursor'] = cursor
-    response = rated_request(path, p, family=family, resource=resource)
-    while response.status_code == 200:
-        data = response.json()
-        for item in data[page_property]:
+def paginate_api(path, page_property, params):
+    def make_request(cursor):
+        p = params.copy()
+        c = cursor
+        if cursor is None:
+            c = -1
+        p['cursor'] = c
+        return rated_request(path, p)
+    def extract_cursor(response):
+        cursor = response.json()['next_cursor_str']
+        if cursor != '0':
+            return cursor
+    def extract_items(response):
+        for item in response.json()[page_property]:
             yield item
-        cursor = data['next_cursor_str']
-        if cursor == '0': break
-        p['cursor'] = cursor
-        response = rated_request(path, p, family=family, resource=resource)
+    return misc.paginate_api(make_request, extract_cursor, extract_items)
 
 User = namedtuple('User', 'id screen_name name location url follower_count following_count')
+Tweet = namedtuple('Tweet', 'id user_id created_at hashtags')
 
 # User -> Dict
 def user_to_json(user):
@@ -88,10 +92,7 @@ def user_fetch_screen_names_db(screen_names, conn):
 def user_fetch_screen_names_api(screen_names):
     result = {sn: None for sn in screen_names}
     for group in grouper(screen_names, 100):
-        response = rated_request('users/lookup.json', 
-                {'screen_name' : ','.join(group)},
-                family='users',
-                resource='/users/lookup')
+        response = rated_request('users/lookup.json', {'screen_name' : ','.join(group)})
         if response.status_code == 200:
             for data in response.json():
                 user = user_from_json(data)
@@ -117,10 +118,7 @@ def user_fetch_screen_name(screen_name, conn):
 def user_fetch_ids_api(ids):
     result = {user_id: None for user_id in ids}
     for group in grouper(ids, 100):
-        response = rated_request('users/lookup.json', 
-                {'user_id' : ','.join(group)},
-                family='users',
-                resource='/users/lookup')
+        response = rated_request('users/lookup.json', {'user_id' : ','.join(group)})
         if response.status_code == 200:
             for data in response.json():
                 user = user_from_json(data)
@@ -151,17 +149,9 @@ def user_friends_api(user, conn):
     params = {'screen_name' : user.screen_name,
             'stringify_ids': 'true'}
     follower_ids = set(paginate_api(
-        path='followers/ids.json', 
-        page_property='ids', 
-        params=params,
-        family='followers',
-        resource='/followers/ids'))
+        path='followers/ids.json', page_property='ids', params=params))
     following_ids = set(paginate_api(
-        path='friends/ids.json', 
-        page_property='ids', 
-        params=params,
-        family='friends',
-        resource='/friends/ids'))
+        path='friends/ids.json', page_property='ids', params=params))
     common_ids = follower_ids.intersection(following_ids)
     return [user for user in user_fetch_ids(common_ids, conn).values() if user is not None]
 
@@ -178,4 +168,65 @@ def user_friends(user, conn):
             global_search=user_friends_api,
             store=store_user_friend,
             search_type='twitter:friend',
+            conn=conn)
+
+def tweet_from_json(data):
+    return Tweet(
+            id=data['id'],
+            user_id=data['user']['id'],
+            created_at=data['created_at'],
+            hashtags={obj['text'] for obj in data['entities']['hashtags']})
+
+def user_tweets_api(user):
+    base_params = {
+            'user_id': user.id, 
+            'trim_user': True, 
+            'count': 200, 
+            'include_rts': False,
+            'exclude_replies': True, 
+            'trim_user': True}
+    def make_request(cursor):
+        params = base_params.copy()
+        if cursor is not None:
+            params['max_id'] = cursor
+        response = rated_request('statuses/user_timeline.json', params)
+        return response
+    def extract_cursor(response):
+        items = response.json()
+        if items != []:
+            lowest_id = min([item['id'] for item in items])
+            return lowest_id - 1
+    def extract_items(response):
+        return (tweet_from_json(data) for data in response.json())
+    return misc.paginate_api(make_request, extract_cursor, extract_items)
+
+def user_tweets_db(user, conn):
+    rows = conn.execute(
+            'SELECT * FROM TwitterTweets WHERE UserId = ?',
+            (user.id,))
+    for (tweet_id, user_id, created_at) in rows:
+        tags = {tag for (tag,) in conn.execute(
+            'SELECT Tag FROM TwitterTagging WHERE TweetId = ?',
+            (tweet_id,))}
+        yield Tweet(
+                id=tweet_id,
+                user_id=user_id,
+                created_at=created_at,
+                hashtags=tags)
+
+def store_tweet(tweet, conn):
+    conn.execute(
+            'INSERT INTO TwitterTweets VALUES(?,?,?)',
+            (tweet.id, tweet.user_id, tweet.created_at))
+    for tag in tweet.hashtags:
+        conn.execute('INSERT INTO TwitterTagging VALUES(?,?)',
+                (tweet.id, tag))
+
+def user_tweets(user, conn):
+    return misc.cached_search(
+            entity=user,
+            db_search=user_tweets_db,
+            global_search=lambda user, conn: user_tweets_api(user),
+            store=lambda _, tweet, conn: store_tweet(tweet, conn),
+            search_type='twitter:tweet',
             conn=conn)

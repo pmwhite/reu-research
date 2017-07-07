@@ -10,19 +10,6 @@ from misc import clean_str_key
 from datetime import datetime
 from collections import namedtuple
 
-def rated_request(url, params={}):
-    rate_limit_info = requests.get(
-            'https://api.github.com/rate_limit?access_token=' + 
-            keys.GITHUB_KEY).json()
-    time_before_reset = int(rate_limit_info['rate']['reset']) - time.time()
-    requests_left = int(rate_limit_info['rate']['remaining'])
-    if requests_left <= 1: delay_time = time_before_reset + 5
-    else: delay_time = time_before_reset / requests_left
-    time.sleep(max(0,5,delay_time))
-    request_params = params.copy()
-    request_params['access_token'] = keys.GITHUB_KEY
-    return requests.get(url, params=request_params)
-
 def graphql_request(query):
     def make_request():
         return requests.post(
