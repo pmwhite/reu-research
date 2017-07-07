@@ -5,6 +5,7 @@ import time
 import re
 from misc import clean_str_key
 from collections import namedtuple
+from datetime import datetime
 
 def xml_children(filename):
     for event, child in ET.iterparse(filename):
@@ -14,8 +15,11 @@ def xml_children(filename):
 
 User = namedtuple('User', 'id display_name reputation website_url age location')
 Tag = namedtuple('Tag', 'id name count')
-Comment = namedtuple('Comment', 'id post_id score user_id')
-Post = namedtuple('Post', 'id post_type_id score owner_user_id accepted_answer_id tags')
+Comment = namedtuple('Comment', 'id post_id score user_id created_at')
+Post = namedtuple('Post', 'id post_type_id score owner_user_id accepted_answer_id created_at tags')
+
+def parse_date(date_str):
+    return datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S.%f')
 
 def user_from_xml(xml):
     if 'Id' in xml:
@@ -47,6 +51,12 @@ def comment_from_xml(xml):
 def store_comment(comment, conn):
     conn.execute('INSERT INTO StackComments VALUES(?,?,?,?)', comment)
 
+def fetch_comment_id(comment_id, conn):
+    row = conn.execute(
+            'SELECT * FROM StackComments WHERE Id = ?', 
+            (comment_id,)).fetchone()
+    return Comment(*row)
+
 def post_from_xml(xml, tag_data):
     tags_str = child.get('Tags', None)
     tags=[]
@@ -59,13 +69,24 @@ def post_from_xml(xml, tag_data):
             score=xml['Score'],
             owner_user_id=xml['OwnerUserId'],
             accepted_answer_id=xml['AcceptedAnswerId'],
+            created_at=parse_date(xml['CreationDate']),
             tag_ids=tags)
 
 def store_post(post, conn):
-    conn.execute('INSERT INTO StackPosts VALUES(?,?,?,?,?,?)', post[:-1])
+    values = (post.id, post.post_type_id, post.score, 
+            post.owner_user_id, post.accepted_answer_id,
+            post.created_at.timestamp())
+    conn.execute('INSERT INTO StackPosts VALUES(?,?,?,?,?,?,?)', values)
     for tag in post.tags:
         conn.execute('INSERT INTO StackTagAssignments VALUES(?,?)',
                     (post.id, tag.id))
+
+def fetch_post_id(post_id, conn):
+    (p_id, post_type_id, score, owner_id, 
+            accepted_id, created_at_stamp) = conn.execute(
+                    'SELECT * FROM StackPosts WHERE Id = ?',
+                    (post_id,)).fetchone()
+
 
 def reload_tags(conn):
     print('Deleting tag data')
