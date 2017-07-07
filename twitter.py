@@ -5,6 +5,7 @@ import time
 import sqlite3
 import twitter
 import misc
+import datetime
 from misc import grouper, clean_str_key
 from collections import namedtuple
 
@@ -27,9 +28,7 @@ def rated_request(path, params):
             requests_left = int(headers['x-rate-limit-remaining'])
             return (reset_time, requests_left)
         except:
-            print(response.headers)
-            print(response.json())
-            raise 'issues with rate limit'
+            return (datetime.datetime.utcnow().timestamp() + 5, 1)
     return misc.rated_request(make_request, extract_rate_info)
 
 def paginate_api(path, page_property, params):
