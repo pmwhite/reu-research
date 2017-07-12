@@ -71,6 +71,44 @@ def cached_search(entity, db_search, global_search, store, search_type, conn):
                 (entity.id, search_type))
         conn.commit()
 
+def levenshtein(s1, s2):
+    w = len(s1) + 1
+    h = len(s2) + 1
+    matrix = [[0 for y in range(h)] for x in range(w)]
+    for i in range(1, w): matrix[i][0] = i
+    for i in range(1, h): matrix[0][i] = i
+    for x in range(1, w):
+        for y in range(1, h):
+            subCost = 1
+            if s1[x-1] == s2[y-1]:
+                subCost = 0
+            matrix[x][y] = min(
+                    matrix[x-1][y] + 1,
+                    matrix[x][y-1] + 1,
+                    matrix[x-1][y-1] + subCost)
+    return matrix[w-1][h-1]
+
+def lcs(s1, s2):
+    w = len(s1)
+    h = len(s2)
+    matrix = [[0 for y in range(h)] for x in range(w)]
+    z = 0
+    for x in range(w):
+        for y in range(h):
+            if s1[x] == s2[y]:
+                if x == 0 or y == 0:
+                    matrix[x][y] = 1
+                else:
+                    matrix[x][y] = matrix[x-1][y-1] + 1
+                z = max(z, matrix[x][y])
+            else:
+                matrix[x][y] = 0
+    return z
+
+
+
+
+
 class CachedSearch:
     def __init__(self, db_fetch, api_fetch, store, search_type):
         self.db_fetch = db_fetch

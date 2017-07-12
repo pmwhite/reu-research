@@ -284,8 +284,21 @@ def store_user_contributed_repo(user, contributed_repo, conn):
     conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
             (user.id, contributed_repo.id))
 
-user_contributed_repos = misc.CachedSearch(
-        db_fetch=user_contributed_repos_db,
-        api_fetch=user_contributed_repos_api,
-        store=store_user_contributed_repo,
-        search_type='github:contributed_repository')
+def user_contributed_repos(user, conn):
+    return misc.cached_search(
+            entity=user,
+            db_search=user_contributed_repos_db,
+            global_search=user_contributed_repos_api,
+            store=store_user_contributed_repo,
+            search_type='github:contributed_repository',
+            conn=conn)
+
+def user_parents(user, conn):
+    for repo in github.user_repos(user, conn):
+        if not repo.is_fork:
+            for contributor in github.repo_contributors(repo, conn):
+                yield contributor
+
+def user_children(user, conn):
+    for repo in github.user_contributed_repos(user, conn):
+        yield github.user_fetch_login(repo.owner_login, conn)

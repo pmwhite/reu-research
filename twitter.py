@@ -5,7 +5,7 @@ import time
 import sqlite3
 import twitter
 import misc
-import datetime
+from datetime import datetime
 from misc import grouper, clean_str_key
 from collections import namedtuple
 
@@ -28,7 +28,7 @@ def rated_request(path, params):
             requests_left = int(headers['x-rate-limit-remaining'])
             return (reset_time, requests_left)
         except:
-            return (datetime.datetime.utcnow().timestamp() + 5, 1)
+            return (datetime.utcnow().timestamp() + 5, 1)
     return misc.rated_request(make_request, extract_rate_info)
 
 def paginate_api(path, page_property, params):
@@ -169,11 +169,17 @@ def user_friends(user, conn):
             search_type='twitter:friend',
             conn=conn)
 
+def user_degree(user, conn):
+    return len(user_friends(user, conn))
+
+def parse_date(date_str):
+    return datetime.strptime(date_str, '%a %b %d %H:%M:%S +0000 %Y')
+
 def tweet_from_json(data):
     return Tweet(
             id=data['id'],
             user_id=data['user']['id'],
-            created_at=data['created_at'],
+            created_at=parse_date(data['created_at']),
             hashtags={obj['text'] for obj in data['entities']['hashtags']})
 
 def user_tweets_api(user):
@@ -210,13 +216,13 @@ def user_tweets_db(user, conn):
         yield Tweet(
                 id=tweet_id,
                 user_id=user_id,
-                created_at=created_at,
+                created_at=datetime.utcfromtimestamp(created_at),
                 hashtags=tags)
 
 def store_tweet(tweet, conn):
     conn.execute(
             'INSERT INTO TwitterTweets VALUES(?,?,?)',
-            (tweet.id, tweet.user_id, tweet.created_at))
+            (tweet.id, tweet.user_id, tweet.created_at.timestamp()))
     for tag in tweet.hashtags:
         conn.execute('INSERT INTO TwitterTagging VALUES(?,?)',
                 (tweet.id, tag))
