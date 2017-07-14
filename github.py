@@ -6,13 +6,14 @@ import itertools
 import keys
 import re
 import misc
+import rest
 from misc import clean_str_key
 from datetime import datetime
 from collections import namedtuple
 
 def graphql_request(query):
     def make_request():
-        return requests.post(
+        return rest.cached_post(
                 url='https://api.github.com/graphql',
                 params={'access_token': keys.GITHUB_KEY},
                 json={'query': query})
@@ -201,11 +202,14 @@ def store_repo_contributor(repo, contributor, conn):
     conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
             (contributor.id, repo.id))
 
-user_repos = misc.CachedSearch(
-        db_fetch=user_repos_db,
-        api_fetch=user_repos_api,
-        store=lambda _, repo, conn: store_repo(repo, conn),
-        search_type='github:repository')
+def user_repos(user, conn):
+    return misc.cached_search(
+            entity=user,
+            db_search=user_repos_db,
+            global_search=lambda user, conn: user_repos_api(user),
+            store=lambda _, repo, conn: store_repo(repo, conn),
+            search_type='github:repository',
+            conn=conn)
 
 def repo_contributors_db(repo, conn):
     id_rows = conn.execute(
@@ -217,7 +221,7 @@ def repo_contributors_db(repo, conn):
             row).fetchone()
         yield User(*values)
 
-def repo_contributors_api(repo):
+def repo_contributors_api(repo, conn):
     baseQuery = '''
         query {
             rateLimit { remaining resetAt cost }
@@ -233,11 +237,14 @@ def repo_contributors_api(repo):
     for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers']):
         yield user_from_json(item)
 
-repo_contributors = misc.CachedSearch(
-        db_fetch=repo_contributors_db,
-        api_fetch=repo_contributors_api,
+def repo_contributors(repo, conn):
+    return misc.cached_search(
+        entity=repo,
+        db_search=repo_contributors_db,
+        global_search=repo_contributors_api,
         store=store_repo_contributor,
-        search_type='github:contributor')
+        search_type='github:contributor',
+        conn=conn)
 
 def user_contributed_repos_db(user, conn):
     id_rows = conn.execute(
@@ -249,7 +256,7 @@ def user_contributed_repos_db(user, conn):
             row).fetchone()
         yield Repo(*values)
 
-def user_contributed_repos_api(user):
+def user_contributed_repos_api(user, conn):
     isUserQuery = '''
         query {
             repositoryOwner(login: "''' + user.login + '''") {

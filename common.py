@@ -1,17 +1,19 @@
+import sqlite3
+
 import github
 import stack
 import twitter
-import sqlite3
+
 from itertools import groupby, islice
 from misc import grouper
-from network import github_network, stack_network, twitter_network, children, parents
+from network import github_network, stack_network, twitter_network, connections
 
 def find_potential_common_users(conn):
     prev_rows = conn.execute('''
             SELECT su.*, tu.*, gu.* FROM StackUsers su
             JOIN TwitterUsers tu ON su.DisplayName = tu.ScreenName
             JOIN GithubUsers gu ON gu.Login = tu.ScreenName
-            JOIN Dict WHERE su.DisplayName <= Dict.Value''')
+            JOIN Dict WHERE su.DisplayName COLLATE NOCASE <= Dict.Value''')
     user_triples = ((stack.User(*row[0:6]), 
         twitter.User(*row[6:13]), 
         github.User(*row[13:20]))
@@ -22,12 +24,13 @@ def find_potential_common_users(conn):
         yield x
     stack_rows = conn.execute('''
             SELECT su.* FROM StackUsers su
-            JOIN Dict WHERE su.DisplayName > Dict.Value
-            ORDER BY su.DisplayName''')
+            JOIN Dict WHERE su.DisplayName COLLATE NOCASE > Dict.Value
+            ORDER BY su.DisplayName COLLATE NOCASE''')
     stack_users = (stack.User(*row) for row in stack_rows)
     grouped_stack_users = ((k, list(vs)) 
             for k, vs in groupby(stack_users, lambda user: user.display_name))
-    for group in grouper(grouped_stack_users, 400):
+    for _group in grouper(grouped_stack_users, 400):
+        group = list(_group)
         cleaned_group = [(dn, users) for dn, users in group if ' ' not in dn]
         display_names = [dn for dn, _ in cleaned_group]
         stack_users_groups = {dn: users for dn, users in cleaned_group}
@@ -62,21 +65,28 @@ def iter_at_least(iterator, n):
     return n - len(list(islice(iterator, n)))
 
 def root_short(n, network, conn):
-    c = islice(children(network, conn), n)
-    p = islice(parents(network, conn), n)
-    return n - (len(list(c)) + len(list(p)))
+    users = set()
+    for connection in connections(network, conn):
+        users.add(connection)
+        if len(users) >= n:
+            break
+    return n - len(users)
 
-def filtered(conn):
-    for (s_users, t, g) in find_potential_common_users(conn):
+def unique_stack_matches(conn):
+    for i, (s_users, t, g) in enumerate(find_potential_common_users(conn)):
         if len(s_users) == 1 and s_users[0].display_name == t.name and t.name == g.name:
-            s = s_users[0]
-            s_short = root_short(300, stack_network(s), conn)
-            g_short = None
-            t_short = None
-            if s_short <= 0:
-                g_short = root_short(40, github_network(g), conn)
-                if g_short <= 0:
-                    t_short = root_short(100, twitter_network(t), conn)
-                    if t_short <= 0:
-                        yield (s, t, g)
-            print(s_short, t_short, g_short, g.login)
+            yield (s_users[0], t, g)
+
+def active_matches(s_limit, t_limit, g_limit, conn):
+    for s, t, g in unique_stack_matches(conn):
+        s_short = root_short(s_limit, stack_network(s), conn)
+        g_short = None
+        t_short = None
+        if s_short <= 0:
+            g_short = root_short(g_limit, github_network(g), conn)
+            if g_short <= 0:
+                t_short = root_short(t_limit, twitter_network(t), conn)
+                if t_short <= 0:
+                    yield (s, t, g)
+        print(s_short, t_short, g_short, g.login)
+

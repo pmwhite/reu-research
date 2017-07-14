@@ -15,10 +15,6 @@ let
     ];
   };
 
-  pycharmOrcle = idea.pycharm-community.override {
-    jdk = oraclejdk8;
-  };
-
   baseInputs = [ vim sqlite sqlitebrowser graphviz ];
 
   ocamlVersion = (builtins.parseDrvName ocamlPackages.ocaml.name).version;
@@ -27,9 +23,10 @@ let
 in {
   pyshell = pkgs.python35Packages.buildPythonPackage rec {
     name = "reu-research";
-    buildInputs = baseInputs ++ [ pycharmOrcle python35 graphviz ];
+    buildInputs = baseInputs ++ [ python35 graphviz ];
 
     propagatedBuildInputs = with pkgs.python35Packages; [ 
+      requests_oauthlib
       pytest pyqt4 requests networkx sqlalchemy
       matplotlib numpy pandas graphviz 
     ];

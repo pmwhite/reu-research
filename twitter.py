@@ -5,22 +5,29 @@ import time
 import sqlite3
 import twitter
 import misc
+import rest
 from datetime import datetime
 from misc import grouper, clean_str_key
 from collections import namedtuple
+from requests_oauthlib import OAuth1, OAuth2
 
-token_reponse = requests.post(
+token_response = requests.post(
         'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
-        auth=(keys.TWITTER_API, keys.TWITTER_SECRET)).json()
+        auth=(keys.TWITTER_CONSUMER_KEY, keys.TWITTER_CONSUMER_SECRET)).json()
 
-access_token = token_reponse['access_token']
-auth_headers = {'Authorization': 'Bearer ' + access_token}
+_bearer_token = token_response['access_token']
+_app_auth = OAuth2(token=token_response)
+_user_auth = OAuth1(
+        keys.TWITTER_CONSUMER_KEY,
+        keys.TWITTER_CONSUMER_SECRET,
+        keys.TWITTER_ACCESS_TOKEN_KEY,
+        keys.TWITTER_ACCESS_TOKEN_SECRET)
 
-def rated_request(path, params):
+def rated_request(path, params, auth=_app_auth):
     def make_request():
-        return requests.get(
+        return rest.cached_get(
                 'https://api.twitter.com/1.1/' + path, 
-                params=params, headers=auth_headers)
+                params=params, auth=auth)
     def extract_rate_info(response):
         headers = response.headers
         try:
@@ -40,6 +47,7 @@ def paginate_api(path, page_property, params):
         p['cursor'] = c
         return rated_request(path, p)
     def extract_cursor(response):
+        print(response.status_code, response.json())
         cursor = response.json()['next_cursor_str']
         if cursor != '0':
             return cursor
@@ -204,6 +212,21 @@ def user_tweets_api(user):
     def extract_items(response):
         return (tweet_from_json(data) for data in response.json())
     return misc.paginate_api(make_request, extract_cursor, extract_items)
+
+def search_users_api(query):
+    def make_request(cursor):
+        c = cursor
+        if cursor is None:
+            c = '1'
+        response = rated_request('users/search.json', {'page': c, 'count': 20, 'q': query}, auth=_user_auth)
+        print(response.status_code, response.headers)
+        return response
+    def extract_cursor(response):
+        return None
+    def extract_items(response):
+        return (user_from_json(data) for data in response.json())
+    return misc.paginate_api(make_request, extract_cursor, extract_items)
+
 
 def user_tweets_db(user, conn):
     rows = conn.execute(
