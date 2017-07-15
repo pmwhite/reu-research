@@ -22,15 +22,14 @@ def cached_get(path, params=None, **kwargs):
 
 def cached_post(url, data=None, json=None, **kwargs):
     h = str(b'post' + pickle.dumps(url) + pickle.dumps(data) + pickle.dumps(json) + pickle.dumps(kwargs))
-    if h in shelf:
+    if h in shelf and 'errors' not in shelf[h].json():
         return (True, shelf[h])
-    else:
-        response = None
-        while response == None:
-            try:
-                response = requests.post(url, data=data, json=json, **kwargs)
-            except Exception as e:
-                print('didn\'t get response, trying again for you in 3 seconds')
-                time.sleep(3)
-        shelf[h] = response
-        return (False, response)
+    response = None
+    while response == None:
+        try:
+            response = requests.post(url, data=data, json=json, **kwargs)
+        except Exception as e:
+            print('didn\'t get response, trying again for you in 3 seconds')
+            time.sleep(3)
+    shelf[h] = response
+    return (False, response)
