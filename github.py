@@ -61,15 +61,6 @@ def user_from_json(data):
             website_url=clean_str_key(data, 'websiteUrl'),
             company=clean_str_key(data, 'company'))
 
-# User -> Dict
-def user_to_json(user):
-    return {'id': user.id,
-            'login': user.login,
-            'location': user.location,
-            'email': user.email,
-            'websiteUrl': user.website_url,
-            'company': user.company}
-
 # Dict -> Repo
 def repo_from_json(data):
     if data['primaryLanguage'] is not None:
@@ -85,22 +76,12 @@ def repo_from_json(data):
             is_fork=data['isFork'],
             homepage=clean_str_key(data, 'homepageUrl'))
 
-# Repo -> Dict
-def repo_to_json(repo):
-    return {'id': repo.id,
-            'ownerId': repo.owner_id,
-            'ownerLogin': repo.owner_login,
-            'name': repo.name,
-            'language': repo.language,
-            'isFork': repo.is_fork,
-            'homepage': repo.homepageUrl}
-
 # String -> String
 def clean_login(login): 
     return '_' + ''.join(['%.5d' % ord(c) for c in login])
 
 # String list -> Map<String, User option>
-def user_fetch_logins_api(logins):
+def user_fetch_logins(logins, conn):
     user_snippet = '''
         %s:repositoryOwner(login: "%s") {
             login 
@@ -126,34 +107,10 @@ def user_fetch_logins_api(logins):
     return result
 
 # String -> DB -> User option
-def user_fetch_login_db(login, conn):
-    db_response = conn.execute(
-            'SELECT * FROM GithubUsers WHERE Login = ?', 
-            (login,)).fetchone()
-    if db_response:
-        return User(*db_response)
-    else:
-        return None
-
-# String list -> DB -> Map<String, User option>
-def user_fetch_logins_db(logins, conn):
-    return {login: user_fetch_login_db(login, conn) for login in logins}
-
-# String list -> DB -> Map<String, User option>
-def user_fetch_logins(logins, conn):
-    result = user_fetch_logins_db(logins, conn)
-    api = user_fetch_logins_api([login for login, user in result.items() if user is None])
-    for login, user in api.items():
-        if user is not None:
-            store_user(user, conn)
-            result[login] = user
-    return result
-
-# String -> DB -> User option
 def user_fetch_login(login, conn):
     return user_fetch_logins([login], conn)[login]
 
-def user_repos_api(user):
+def user_repos(user, conn):
     baseQuery = '''
         query { 
             rateLimit { remaining resetAt cost }
@@ -176,52 +133,7 @@ def user_repos_api(user):
         if repo.owner_id == user.id:
             yield repo
 
-def user_repos_db(user, conn):
-    db_response = conn.execute(
-        'SELECT * FROM GithubRepos WHERE OwnerId = ?',
-        (user.id,)).fetchall()
-    for values in db_response:
-        yield Repo(*values)
-
-def store_user(user, conn):
-    values = (user.id, user.login, user.location, 
-            user.email, user.name, user.website_url, user.company)
-    conn.execute(
-            'INSERT OR IGNORE INTO GithubUsers VALUES(?,?,?,?,?,?,?)',
-            values)
-
-def store_repo(repo, conn):
-    values = (repo.id, repo.owner_id, repo.owner_login, repo.name, 
-            repo.language, repo.is_fork, repo.homepage)
-    conn.execute(
-            'INSERT OR IGNORE INTO GithubRepos VALUES(?,?,?,?,?,?,?)',
-            values)
-
-def store_repo_contributor(repo, contributor, conn):
-    store_user(contributor, conn)
-    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
-            (contributor.id, repo.id))
-
-def user_repos(user, conn):
-    return misc.cached_search(
-            entity=user,
-            db_search=user_repos_db,
-            global_search=lambda user, conn: user_repos_api(user),
-            store=lambda _, repo, conn: store_repo(repo, conn),
-            search_type='github:repository',
-            conn=conn)
-
-def repo_contributors_db(repo, conn):
-    id_rows = conn.execute(
-            'SELECT UserId FROM GithubContributions WHERE RepoId = ?', 
-            (repo.id,)).fetchall()
-    for row in id_rows:
-        values = conn.execute(
-            'SELECT * FROM GithubUsers WHERE Id = ?',
-            row).fetchone()
-        yield User(*values)
-
-def repo_contributors_api(repo, conn):
+def repo_contributors(repo, conn):
     baseQuery = '''
         query {
             rateLimit { remaining resetAt cost }
@@ -237,26 +149,7 @@ def repo_contributors_api(repo, conn):
     for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers']):
         yield user_from_json(item)
 
-def repo_contributors(repo, conn):
-    return misc.cached_search(
-        entity=repo,
-        db_search=repo_contributors_db,
-        global_search=repo_contributors_api,
-        store=store_repo_contributor,
-        search_type='github:contributor',
-        conn=conn)
-
-def user_contributed_repos_db(user, conn):
-    id_rows = conn.execute(
-            'SELECT RepoId FROM GithubContributions WHERE UserId = ?', 
-            (user.id,)).fetchall()
-    for row in id_rows:
-        values = conn.execute(
-            'SELECT * FROM GithubRepos WHERE Id = ?',
-            row).fetchone()
-        yield Repo(*values)
-
-def user_contributed_repos_api(user, conn):
+def user_contributed_repos(user, conn):
     isUserQuery = '''
         query {
             repositoryOwner(login: "''' + user.login + '''") {
@@ -282,30 +175,7 @@ def user_contributed_repos_api(user, conn):
                     }
                 }
             }'''
-        for item in paginate_gql_connection(
-                baseQuery, ['user', 'contributedRepositories']):
-            yield repo_from_json(item)
-
-def store_user_contributed_repo(user, contributed_repo, conn):
-    store_repo(contributed_repo, conn)
-    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
-            (user.id, contributed_repo.id))
-
-def user_contributed_repos(user, conn):
-    return misc.cached_search(
-            entity=user,
-            db_search=user_contributed_repos_db,
-            global_search=user_contributed_repos_api,
-            store=store_user_contributed_repo,
-            search_type='github:contributed_repository',
-            conn=conn)
-
-def user_parents(user, conn):
-    for repo in github.user_repos(user, conn):
-        if not repo.is_fork:
-            for contributor in github.repo_contributors(repo, conn):
-                yield contributor
-
-def user_children(user, conn):
-    for repo in github.user_contributed_repos(user, conn):
-        yield github.user_fetch_login(repo.owner_login, conn)
+        return (repo_from_json(item) for item in 
+                paginate_gql_connection(baseQuery, ['user', 'contributedRepositories']))
+    else:
+        return []

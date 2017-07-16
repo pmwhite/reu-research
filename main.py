@@ -40,7 +40,7 @@ def run_stuff(conn):
         for s_user, t_user, g_user in common.active_matches(20, 20, 8, conn):
             print('=' * 80, t_user.screen_name, '=' * 80)
             if not os.path.isfile('twitter_' + t_user.screen_name + '.gexf'):
-                (t_net, g_net) = deanon.seed_tg(t_user, g_user, 20, conn)
+                (t_net, g_net) = deanon.queue_seed_tg(t_user, g_user, 20, conn)
                 simple_gefx(t_net, labeler=lambda user: user.screen_name).write('twitter_' + t_user.screen_name + '.gexf')
                 simple_gefx(g_net, labeler=lambda user: user.login).write('github_' + t_user.screen_name + '.gexf')
             conn.commit()

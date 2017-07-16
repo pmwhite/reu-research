@@ -13,7 +13,7 @@ def cached_get(path, params=None, **kwargs):
         response = None
         while response == None:
             try:
-                response = requests.get(path, params=params, **kwargs)
+                response = requests.get(path, params=params, timeout=10, **kwargs)
             except Exception as e:
                 print('didn\'t get response, trying again for you in 3 seconds')
                 time.sleep(3)
@@ -27,7 +27,7 @@ def cached_post(url, data=None, json=None, **kwargs):
     response = None
     while response == None:
         try:
-            response = requests.post(url, data=data, json=json, **kwargs)
+            response = requests.post(url, data=data, json=json, timeout=10, **kwargs)
         except Exception as e:
             print('didn\'t get response, trying again for you in 3 seconds')
             time.sleep(3)

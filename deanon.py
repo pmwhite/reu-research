@@ -95,35 +95,28 @@ def new_seed_tg(t_user, g_user, max_seeds, conn):
 
 def queue_seed_tg(t_user, g_user, max_seeds, conn):
     search_queue = deque()
-    t_edges = walk_edges(t_user, twitter_walk, conn)
-    g_edges = walk_edges(g_user, github_walk, conn)
+    search_queue.append((t_user, g_user))
     t_graph = graph.empty_graph()
     g_graph = graph.empty_graph()
-    last_seeds = set()
-    last_t_size
-    while len(last_seeds) < max_seeds:
-        graph.add_edges_from(t_graph, islice(t_edges, 100), lambda user: user.id)
-        graph.add_edges_from(g_graph, islice(g_edges, 300), lambda user: user.id)
-        t_nodes = list(t_graph.nodes.values())
-        g_nodes = list(g_graph.nodes.values())
-        print(len(t_nodes))
-        print(len(g_nodes))
-        pairs = product(t_nodes, g_nodes)
-        seeds = {pair for pair in pairs if tg_pred(*pair)}
-        print(seeds)
-        if len(seeds) > len(last_seeds):
-            for seed in seeds - last_seeds:
+    last_seeds = {(t_user, g_user)}
+    while len(search_queue) != 0:
+        (t_center, g_center) = search_queue.popleft()
+        print('searching', g_center.login)
+        t_exploration = graph.pull_n_nodes(500, walk_edges(t_center, twitter_walk, conn), lambda user: user.id)
+        g_exploration = graph.pull_n_nodes(500, walk_edges(g_center, github_walk, conn), lambda user: user.id)
+        seeds = graph_seeds(t_exploration, g_exploration, tg_pred)
+        print('found:', seeds)
+        for seed in seeds:
+            if seed not in last_seeds:
                 search_queue.append(seed)
-            print(seeds)
-            print(len(seeds))
-            if len(search_queue) != 0:
-                (t_center, g_center) = search_queue.popleft()
-                print('switching...', t_center.screen_name, g_center.login)
-                t_edges = walk_edges(t_center, twitter_walk, conn)
-                g_edges = walk_edges(g_center, github_walk, conn)
-                last_seeds = seeds
-            else:
-                break
+                last_seeds.add(seed)
+        print('total:', len(last_seeds))
+        if len(last_seeds) > max_seeds:
+            break
+        t_graph = graph.union(t_graph, t_exploration)
+        g_graph = graph.union(g_graph, g_exploration)
+        if len(last_seeds) > max_seeds:
+            break
     return (t_graph, g_graph)
 
 def seed_tg(t_user, g_user, max_seeds, conn):

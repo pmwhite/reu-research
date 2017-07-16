@@ -33,40 +33,6 @@ def paginate_api(make_request, extract_cursor, extract_items):
             break
         response = make_request(next_cursor)
 
-def fetch_many_db(query, identifiers, entity_creator, conn):
-    def fetch_one(ident):
-        db_response = conn.execute(query, (ident,)).fetchone()
-        if db_response is not None:
-            return entity_creator(*db_response)
-    return {ident: fetch_one(ident) for ident in identifiers}
-
-def cached_fetch(db_query, api_fetch_many, from_db, from_json, store, identifiers, conn):
-    def fetch_one(ident):
-        row = conn.execute(db_query, (ident,)).fetchone()
-        if row is not None:
-            return from_db(*row)
-    result = {ident: fetch_one(ident) for ident in identifiers}
-    api = api_fetch_many([ident for ident, entity in result.items() if entity is None])
-    for ident, entity in api.items():
-        if entity is not None:
-            store(entity, conn)
-            result[ident] = entity
-    return result
-
-def cached_search(entity, db_search, global_search, store, search_type, conn):
-    row = conn.execute('''
-            SELECT * FROM ApiSearches 
-            WHERE EntityId = ? 
-            AND SearchType = ?''',
-            (entity.id, search_type)).fetchone()
-    if row is not None:
-        for item in db_search(entity, conn):
-            yield item
-    else:
-        for item in global_search(entity, conn):
-            store(entity, item, conn)
-            yield item
-        conn.execute(
-                'INSERT INTO ApiSearches VALUES(?,?)',
-                (entity.id, search_type))
-        conn.commit()
+def progress(goal, current):
+    c = int(current / goal * 100)
+    print('|' + ('=' * c).ljust(100) + '|')
