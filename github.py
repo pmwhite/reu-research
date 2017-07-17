@@ -11,12 +11,13 @@ from misc import clean_str_key
 from datetime import datetime
 from collections import namedtuple
 
-def graphql_request(query):
+def graphql_request(query, conn):
     def make_request():
         return rest.cached_post(
                 url='https://api.github.com/graphql',
                 params={'access_token': keys.GITHUB_KEY},
-                json={'query': query})
+                json={'query': query},
+                conn=conn)
     def extract_rate_info(response):
         info = response.json()['data']['rateLimit']
         reset_time = datetime.strptime(
@@ -26,12 +27,12 @@ def graphql_request(query):
         return (reset_time, requests_left)
     return misc.rated_request(make_request, extract_rate_info)
 
-def paginate_gql_connection(baseQuery, nodes_path):
+def paginate_gql_connection(baseQuery, nodes_path, conn):
     def make_request(cursor):
         cursor_str = ''
         if cursor is not None:
             cursor_str = 'after: "%s"' % cursor
-        return graphql_request(baseQuery % cursor_str)
+        return graphql_request(baseQuery % cursor_str, conn)
     def extract_cursor(response):
         data = response.json()['data']
         for path_item in nodes_path:
@@ -60,6 +61,24 @@ def user_from_json(data):
             name=clean_str_key(data, 'name'),
             website_url=clean_str_key(data, 'websiteUrl'),
             company=clean_str_key(data, 'company'))
+
+def serialize_user(user):
+    return {'g_id': user.id,
+            'g_login': user.login,
+            'g_location': user.location,
+            'g_email': user.email,
+            'g_name': user.name,
+            'g_website_url': user.website_url,
+            'g_company': user.company}
+
+user_attribute_schema = {
+        'g_id': 'string', 
+        'g_login': 'string', 
+        'g_location': 'string',
+        'g_email': 'string',
+        'g_name': 'string',
+        'g_website_url': 'string',
+        'g_company': 'string'}
 
 # Dict -> Repo
 def repo_from_json(data):
@@ -96,7 +115,7 @@ def user_fetch_logins(logins, conn):
         users_snippet = '\n'.join(
                 [user_snippet % (clean_login(login), login) for login in login_group])
         query_str = 'query {\n%s\n%s}' % (users_snippet, rate_snippet)
-        response = graphql_request(query_str)
+        response = graphql_request(query_str, conn)
         data = response.json()['data']
         for login in login_group:
             json = data[clean_login(login)]
@@ -128,7 +147,7 @@ def user_repos(user, conn):
                 }
             }
         }'''
-    for item in paginate_gql_connection(baseQuery, ['repositoryOwner', 'repositories']):
+    for item in paginate_gql_connection(baseQuery, ['repositoryOwner', 'repositories'], conn):
         repo = repo_from_json(item)
         if repo.owner_id == user.id:
             yield repo
@@ -146,7 +165,7 @@ def repo_contributors(repo, conn):
                 }
             }
         }'''
-    for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers']):
+    for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers'], conn):
         yield user_from_json(item)
 
 def user_contributed_repos(user, conn):
@@ -157,7 +176,7 @@ def user_contributed_repos(user, conn):
             }
             rateLimit { remaining resetAt }
         }'''
-    if graphql_request(isUserQuery).json()['data']['repositoryOwner']['__typename'] == 'User':
+    if graphql_request(isUserQuery, conn).json()['data']['repositoryOwner']['__typename'] == 'User':
         baseQuery = '''
             query { 
                 rateLimit { remaining resetAt cost }
@@ -176,6 +195,6 @@ def user_contributed_repos(user, conn):
                 }
             }'''
         return (repo_from_json(item) for item in 
-                paginate_gql_connection(baseQuery, ['user', 'contributedRepositories']))
+                paginate_gql_connection(baseQuery, ['user', 'contributedRepositories'], conn))
     else:
         return []

@@ -74,8 +74,8 @@ def new_seed_tg(t_user, g_user, max_seeds, conn):
         new_seeds = set()
         for (t_seed, g_seed), (t_edges, g_edges) in seeds.items():
             print('searching', t_seed.screen_name)
-            t_exploration = graph.from_edges(islice(t_edges, 100), hasher=lambda user: user.id)
-            g_exploration = graph.from_edges(islice(g_edges, 300), hasher=lambda user: user.id)
+            t_exploration = graph.from_edges(islice(t_edges, 100))
+            g_exploration = graph.from_edges(islice(g_edges, 300))
             print(len(t_exploration.nodes), len(g_exploration.nodes))
             new_seeds.update(graph_seeds(t_graph, g_exploration, tg_pred))
             new_seeds.update(graph_seeds(t_exploration, g_graph, tg_pred))
@@ -102,8 +102,8 @@ def queue_seed_tg(t_user, g_user, max_seeds, conn):
     while len(search_queue) != 0:
         (t_center, g_center) = search_queue.popleft()
         print('searching', g_center.login)
-        t_exploration = graph.pull_n_nodes(500, walk_edges(t_center, twitter_walk, conn), lambda user: user.id)
-        g_exploration = graph.pull_n_nodes(500, walk_edges(g_center, github_walk, conn), lambda user: user.id)
+        t_exploration = graph.pull_n_nodes(500, walk_edges(t_center, twitter_walk, conn))
+        g_exploration = graph.pull_n_nodes(500, walk_edges(g_center, github_walk, conn))
         seeds = graph_seeds(t_exploration, g_exploration, tg_pred)
         print('found:', seeds)
         for seed in seeds:
@@ -117,7 +117,7 @@ def queue_seed_tg(t_user, g_user, max_seeds, conn):
         g_graph = graph.union(g_graph, g_exploration)
         if len(last_seeds) > max_seeds:
             break
-    return (t_graph, g_graph)
+    return (t_graph, g_graph, last_seeds)
 
 def seed_tg(t_user, g_user, max_seeds, conn):
     t_edges = walk_edges(t_user, twitter_walk, conn)
@@ -144,6 +144,31 @@ def seed_tg(t_user, g_user, max_seeds, conn):
             g_edges = walk_edges(g_center, github_walk, conn)
             last_seeds = seeds
     return (t_graph, g_graph)
+
+def mash_tg(t, g):
+    return (t, g)
+
+def serialize_tg(tg):
+    if type(tg) is github.User:
+        return {**github.serialize_user(tg), 'node_type': 'g'}
+    elif type(tg) is twitter.User:
+        return {**twitter.serialize_user(tg), 'node_type': 't'}
+    else:
+        (t, g) = tg
+        return {**twitter.serialize_user(t), **github.serialize_user(g), 'node_type': 'tg'}
+
+tg_attribute_schema = {
+        **twitter.user_attribute_schema, 
+        **github.user_attribute_schema,
+        'node_type': 'string'}
+
+def label_tg(tg):
+    if type(tg) is github.User: return tg.login
+    elif type(tg) is twitter.User: return tg.screen_name
+    else:
+        print(tg)
+        (t, g) = tg
+        return g.login
 
 def tg_metric(t_user, g_user):
     total = lcs(t_user.screen_name, g_user.login)

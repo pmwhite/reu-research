@@ -1,5 +1,7 @@
 import itertools
 import time
+import hashlib
+import pickle
 from datetime import datetime
 
 def grouper(iterable, n):
@@ -36,3 +38,6 @@ def paginate_api(make_request, extract_cursor, extract_items):
 def progress(goal, current):
     c = int(current / goal * 100)
     print('|' + ('=' * c).ljust(100) + '|')
+
+def hash(obj):
+    return hashlib.sha256(pickle.dumps(obj)).digest()

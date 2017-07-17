@@ -23,9 +23,10 @@ _user_auth = OAuth1(
         keys.TWITTER_ACCESS_TOKEN_KEY,
         keys.TWITTER_ACCESS_TOKEN_SECRET)
 
-def rated_request(path, params, auth=_app_auth):
+def rated_request(path, params, conn, auth=_app_auth):
     def make_request():
         return rest.cached_get(
+                conn,
                 'https://api.twitter.com/1.1/' + path, 
                 params=params, auth=auth)
     def extract_rate_info(response):
@@ -38,14 +39,14 @@ def rated_request(path, params, auth=_app_auth):
             return (datetime.utcnow().timestamp() + 5, 1)
     return misc.rated_request(make_request, extract_rate_info)
 
-def paginate_api(path, page_property, params):
+def paginate_api(path, page_property, params, conn):
     def make_request(cursor):
         p = params.copy()
         c = cursor
         if cursor is None:
             c = -1
         p['cursor'] = c
-        return rated_request(path, p)
+        return rated_request(path, p, conn)
     def extract_cursor(response):
         cursor = response.json()['next_cursor_str']
         if cursor != '0':
@@ -69,11 +70,29 @@ def user_from_json(data):
             follower_count=clean_str_key(data, 'followers_count'),
             following_count=clean_str_key(data, 'friends_count'))
 
+def serialize_user(user):
+    return {'t_id': user.id,
+            't_screen_name': user.screen_name,
+            't_name': user.name,
+            't_location': user.location,
+            't_url': user.url,
+            't_follower_count': user.follower_count,
+            't_following_count': user.following_count}
+
+user_attribute_schema = {
+        't_id': 'string',  
+        't_screen_name': 'string', 
+        't_name': 'string',
+        't_location': 'string',
+        't_url': 'string',
+        't_follower_count': 'integer',
+        't_following_count': 'integer'}
+
 # String list -> Map<String, User option>
 def user_fetch_screen_names(screen_names, conn):
     result = {sn: None for sn in screen_names}
     for group in grouper(screen_names, 100):
-        response = rated_request('users/lookup.json', {'screen_name' : ','.join(group)})
+        response = rated_request('users/lookup.json', {'screen_name' : ','.join(group)}, conn)
         if response.status_code == 200:
             for data in response.json():
                 user = user_from_json(data)
@@ -88,7 +107,7 @@ def user_fetch_screen_name(screen_name, conn):
 def user_fetch_ids(ids, conn):
     result = {user_id: None for user_id in ids}
     for group in grouper(ids, 100):
-        response = rated_request('users/lookup.json', {'user_id' : ','.join(group)})
+        response = rated_request('users/lookup.json', {'user_id' : ','.join(group)}, conn)
         if response.status_code == 200:
             for data in response.json():
                 user = user_from_json(data)
@@ -99,9 +118,9 @@ def user_friends(user, conn):
     params = {'screen_name' : user.screen_name,
             'stringify_ids': 'true'}
     follower_ids = set(paginate_api(
-        path='followers/ids.json', page_property='ids', params=params))
+        path='followers/ids.json', page_property='ids', params=params, conn=conn))
     following_ids = set(paginate_api(
-        path='friends/ids.json', page_property='ids', params=params))
+        path='friends/ids.json', page_property='ids', params=params, conn=conn))
     common_ids = follower_ids.intersection(following_ids)
     return [user for user in user_fetch_ids(common_ids, conn).values() if user is not None]
 
@@ -130,7 +149,7 @@ def user_tweets(user, conn):
         params = base_params.copy()
         if cursor is not None:
             params['max_id'] = cursor
-        response = rated_request('statuses/user_timeline.json', params)
+        response = rated_request('statuses/user_timeline.json', params, conn)
         return response
     def extract_cursor(response):
         items = response.json()
@@ -146,7 +165,7 @@ def search_users(query):
         c = cursor
         if cursor is None:
             c = '1'
-        response = rated_request('users/search.json', {'page': c, 'count': 20, 'q': query}, auth=_user_auth)
+        response = rated_request('users/search.json', {'page': c, 'count': 20, 'q': query}, conn, auth=_user_auth)
         print(response.status_code, response.headers)
         return response
     def extract_cursor(response):

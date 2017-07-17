@@ -4,6 +4,7 @@ __pycache__/
 data/
 backup/
 img/
+outputs/
 
 # Don't check keys into version control
 keys.py
