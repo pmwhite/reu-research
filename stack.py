@@ -149,13 +149,22 @@ def reload_posts(conn):
         if count % 10000 == 0: 
             print(count / 1000000.0)
 
-def user_to_json(user):
-    return {'id': user.id,
-            'displayName': user.display_name,
-            'reputation': user.reputation,
-            'websiteUrl': user.websiteUrl,
-            'age': user.age,
-            'location': user.location}
+def serialize_user(user):
+    return {'s_id': user.id,
+            's_displayName': user.display_name,
+            's_reputation': user.reputation,
+            's_websiteUrl': user.websiteUrl,
+            's_age': user.age,
+            's_location': user.location}
+
+user_attribute_schema = {
+        's_id': 'string',
+        's_displayName': 'string',
+        's_reputation': 'integer',
+        's_websiteUrl': 'string',
+        's_age': 'integer',
+        's_location': 'string'}
+
 
 def user_fetch_id(user_id, conn):
     row = conn.execute(
@@ -168,6 +177,12 @@ def user_fetch_display_name(display_name, conn):
             'SELECT * FROM StackUsers WHERE DisplayName = ?',
             (display_name,)).fetchone()
     return User(*row)
+
+def user_fetch_display_name_all(display_name, conn):
+    rows = conn.execute(
+            'SELECT * FROM StackUsers WHERE DisplayName = ?',
+            (display_name,)).fetchall()
+    return [User(*row) for row in rows]
 
 def user_posts(user, conn):
     return [post_from_db(row, conn) for row in conn.execute(
@@ -196,6 +211,3 @@ def user_questioners(user, conn):
         JOIN StackUsers questioners ON questioners.Id = questions.OwnerUserId
         WHERE su.Id = ?''', (user.id,)).fetchall()
     return [User(*row) for row in rows]
-
-def user_degree(user, conn):
-    return len(user_answerers(user, conn)) + len(user_questioners(user, conn))

@@ -25,6 +25,12 @@ def walk_edges(init, walk, conn):
         leaves = new_leaves - nodes
         nodes = nodes.union(leaves)
 
+def connections(x, walk, conn):
+    return chain(walk.out_gen(x, conn), walk.in_gen(x, conn))
+
+def degree(x, walk, conn):
+    return len(list(connections(x, walk, conn)))
+
 def github_out_gen(user, conn):
     for repo in github.user_contributed_repos(user, conn):
         yield github.user_fetch_login(repo.owner_login, conn)
@@ -76,9 +82,3 @@ stack_walk = Walk(
         out_gen=stack_out_gen,
         in_gen=stack_in_gen,
         select_leaves=stack_select_leaves)
-
-def connections(x, walk, conn):
-    return chain(walk.out_gen(x, conn), walk.in_gen(x, conn))
-
-def degree(x, walk, conn):
-    return len(list(connections(x, walk, conn)))

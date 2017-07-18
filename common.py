@@ -6,10 +6,25 @@ from itertools import groupby, islice
 from misc import grouper
 from network import stack_walk, twitter_walk, github_walk, degree
 
-def find_potential_common_users(conn):
-    stack_rows = conn.execute('''
-            SELECT * FROM StackUsers
-            ORDER BY DisplayName COLLATE NOCASE''')
+def check_username(username, conn):
+    stack_rows = conn.execute(
+            'SELECT * FROM StackUsers WHERE DisplayName = ?',
+            [username]).fetchall()
+    stack_users = [stack.User(*row) for row in stack_rows]
+    twitter_user = twitter.user_fetch_screen_name(username, conn)
+    github_user = github.user_fetch_login(username, conn)
+    return (stack_users, twitter_user, github_user)
+
+def username_matches(conn, after=None):
+    if after is not None:
+        stack_rows = conn.execute('''
+                SELECT * FROM StackUsers
+                WHERE DisplayName > ?
+                ORDER BY DisplayName COLLATE NOCASE''', [after])
+    else:
+        stack_rows = conn.execute('''
+                SELECT * FROM StackUsers
+                ORDER BY DisplayName COLLATE NOCASE''')
     stack_users = (stack.User(*row) for row in stack_rows)
     grouped_stack_users = ((k, list(vs)) 
             for k, vs in groupby(stack_users, lambda user: user.display_name))
@@ -27,37 +42,15 @@ def find_potential_common_users(conn):
             if su is not None and tu is not None and gu is not None:
                 yield (su, tu, gu)
 
-def triple_rating(s, t, g):
-    rating = 0
-    if s.display_name == t.name and g.name == t.name:
-        rating += 1
-    if s.location == t.location and g.location == t.location and s.location is not None:
-        rating += 1
-    return rating
-
-def best_triples(conn):
-    potentials = find_potential_common_users(conn)
-    for (s_users, t, g) in potentials:
-        triples = [(s, t, g) for s in s_users]
-        yield max(triples, key=lambda triple: triple_rating(*triple))
-
-def good_triples(conn):
-    return (triple for triple in best_triples(conn) if triple_rating(*triple) > 1)
-
-def unique_stack_matches(conn):
-    for i, (s_users, t, g) in enumerate(find_potential_common_users(conn)):
+def unique_username_matches(conn, after=None):
+    for s_users, t, g in username_matches(conn, after=after):
         if len(s_users) == 1 and s_users[0].display_name == t.name and t.name == g.name:
             yield (s_users[0], t, g)
 
-def active_matches(s_limit, t_limit, g_limit, conn):
-    for s, t, g in unique_stack_matches(conn):
-        s_deg = degree(s, stack_walk, conn)
-        g_deg = None
-        t_deg = None
-        if s_deg >= s_limit:
-            g_deg = degree(g, github_walk, conn)
-            if g_deg >= g_limit:
-                t_deg = degree(t, twitter_walk, conn)
-                if t_deg >= t_limit:
+def active_unique_username_matches(conn, s_limit, t_limit, g_limit, after=None):
+    for s, t, g in unique_username_matches(conn, after=after):
+        # print(g.login)
+        if degree(s, stack_walk, conn) >= s_limit:
+            if degree(g, github_walk, conn) >= g_limit:
+                if degree(t, twitter_walk, conn) >= t_limit:
                     yield (s, t, g)
-        print(s_deg, t_deg, g_deg, g.login)

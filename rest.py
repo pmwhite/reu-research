@@ -15,6 +15,7 @@ def find_str_db(s, conn):
 
 def store_str_db(s, v, conn):
     conn.execute('REPLACE INTO HttpRequests VALUES(?,?)', [s, sqlite3.Binary(pickle.dumps(v))])
+    conn.commit()
 
 
 def cached_get(conn, path, params=None, **kwargs):

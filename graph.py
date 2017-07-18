@@ -48,6 +48,13 @@ def pull_n_nodes(n, edges_iter):
             break
     return graph
 
+def edge_map(graph):
+    edge_sets = {key: set() for key, value in graph.nodes.items()}
+    for f, t in graph.edges:
+        edge_sets[f].add(t)
+        edge_sets[t].add(f)
+    return edge_sets
+
 def union(g1, g2):
     return Graph(
             nodes={**g2.nodes, **g1.nodes},
@@ -115,3 +122,9 @@ def write_github(graph, f):
             github.user_attribute_schema,
             github.serialize_user,
             lambda user: user.login).write(f)
+
+def write_stack(graph, f):
+    to_gefx(graph, 
+            stack.user_attribute_schema,
+            stack.serialize_user,
+            lambda user: user.display_name).write(f)

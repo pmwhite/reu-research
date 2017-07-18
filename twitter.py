@@ -124,9 +124,6 @@ def user_friends(user, conn):
     common_ids = follower_ids.intersection(following_ids)
     return [user for user in user_fetch_ids(common_ids, conn).values() if user is not None]
 
-def user_degree(user, conn):
-    return len(user_friends(user, conn))
-
 def parse_date(date_str):
     return datetime.strptime(date_str, '%a %b %d %H:%M:%S +0000 %Y')
 
