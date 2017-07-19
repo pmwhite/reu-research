@@ -106,15 +106,15 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
     if g_user and t_user:
         base_path = out_dir + '/' + username
         while True:
-            # try:
+            try:
                 attacker_data = common.tg_attacker_data(t_user, g_user, seeds, nodes, batch, conn)
                 mashed = deanon.mash_attacker_data(attacker_data)
                 graph_to_gefx(mashed, common.tg_visualizer).write(base_path + '_mash.gexf')
                 graph_to_gefx(attacker_data.target, twitter.user_visualizer).write(base_path + '_twitter.gexf')
                 graph_to_gefx(attacker_data.aux, github.user_visualizer).write(base_path + '_github.gexf')
                 break
-            # except Exception as e:
-                # print(e)
+            except Exception as e:
+                print(e)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

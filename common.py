@@ -56,11 +56,11 @@ def active_unique_username_matches(conn, s_limit, t_limit, g_limit, after=None):
                     yield (s, t, g)
 
 def tg_is_seed(t_user, g_user):
-    return (g_user.login == t_user.screen_name and
-            g_user.name is not None and 
+    return (g_user.login == t_user.screen_name or
+            (g_user.name is not None and 
             t_user.name is not None and 
             ' ' in g_user.name and 
-            g_user.name == t_user.name)
+            g_user.name == t_user.name))
 
 def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
     return deanon.collect_attacker_data(
