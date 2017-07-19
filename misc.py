@@ -41,3 +41,6 @@ def progress(goal, current):
 
 def hash(obj):
     return hashlib.sha256(pickle.dumps(obj)).digest()
+
+def prefix_keys(d, prefix):
+    return {prefix + key: value for key, value in d.items()}

@@ -1,8 +1,7 @@
 import xml.etree.ElementTree as ET
-import itertools
-import sqlite3
-import time
 import re
+from network import Walk
+from visualization import NodeVisualizer
 from misc import clean_str_key
 from collections import namedtuple
 from datetime import datetime
@@ -149,23 +148,6 @@ def reload_posts(conn):
         if count % 10000 == 0: 
             print(count / 1000000.0)
 
-def serialize_user(user):
-    return {'s_id': user.id,
-            's_displayName': user.display_name,
-            's_reputation': user.reputation,
-            's_websiteUrl': user.websiteUrl,
-            's_age': user.age,
-            's_location': user.location}
-
-user_attribute_schema = {
-        's_id': 'string',
-        's_displayName': 'string',
-        's_reputation': 'integer',
-        's_websiteUrl': 'string',
-        's_age': 'integer',
-        's_location': 'string'}
-
-
 def user_fetch_id(user_id, conn):
     row = conn.execute(
             'SELECT * FROM StackUsers WHERE Id = ?',
@@ -211,3 +193,27 @@ def user_questioners(user, conn):
         JOIN StackUsers questioners ON questioners.Id = questions.OwnerUserId
         WHERE su.Id = ?''', (user.id,)).fetchall()
     return [User(*row) for row in rows]
+
+user_attribute_schema = {
+        'id': 'string',
+        'display_name': 'string',
+        'reputation': 'integer',
+        'website_url': 'string',
+        'age': 'integer',
+        'location': 'string'}
+
+def user_serialize(user):
+    return user._asdict()
+
+def user_label(user):
+    return user.display_name
+
+node_visualizer = NodeVisualizer(
+        schema=user_attribute_schema,
+        serialize=user_serialize,
+        label=user_label)
+
+user_walk = Walk(
+        out_gen=user_questioners,
+        in_gen=user_answerers,
+        select_leaves=lambda leaves: leaves)

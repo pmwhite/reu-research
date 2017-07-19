@@ -1,29 +1,34 @@
 import requests
 import keys
-import itertools
-import time
-import sqlite3
-import twitter
 import misc
 import rest
+from network import Walk
+from visualization import NodeVisualizer
 from datetime import datetime
 from misc import grouper, clean_str_key
 from collections import namedtuple
 from requests_oauthlib import OAuth1, OAuth2
 
-token_response = requests.post(
-        'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
-        auth=(keys.TWITTER_CONSUMER_KEY, keys.TWITTER_CONSUMER_SECRET)).json()
+_token_response = None
+def token_response():
+    global _token_response
+    if _token_response is None:
+        _token_response = requests.post(
+                'https://api.twitter.com/oauth2/token?grant_type=client_credentials',
+                auth=(keys.TWITTER_CONSUMER_KEY, keys.TWITTER_CONSUMER_SECRET)).json()
+    return _token_response
 
-_bearer_token = token_response['access_token']
-_app_auth = OAuth2(token=token_response)
-_user_auth = OAuth1(
-        keys.TWITTER_CONSUMER_KEY,
-        keys.TWITTER_CONSUMER_SECRET,
-        keys.TWITTER_ACCESS_TOKEN_KEY,
-        keys.TWITTER_ACCESS_TOKEN_SECRET)
+def _app_auth():
+    return OAuth2(token=token_response())
 
-def rated_request(path, params, conn, auth=_app_auth):
+def _user_auth():
+    return OAuth1(
+            keys.TWITTER_CONSUMER_KEY,
+            keys.TWITTER_CONSUMER_SECRET,
+            keys.TWITTER_ACCESS_TOKEN_KEY,
+            keys.TWITTER_ACCESS_TOKEN_SECRET)
+
+def rated_request(path, params, conn, auth=_app_auth()):
     def make_request():
         return rest.cached_get(
                 conn,
@@ -69,24 +74,6 @@ def user_from_json(data):
             url=clean_str_key(data, 'url'),
             follower_count=clean_str_key(data, 'followers_count'),
             following_count=clean_str_key(data, 'friends_count'))
-
-def serialize_user(user):
-    return {'t_id': user.id,
-            't_screen_name': user.screen_name,
-            't_name': user.name,
-            't_location': user.location,
-            't_url': user.url,
-            't_follower_count': user.follower_count,
-            't_following_count': user.following_count}
-
-user_attribute_schema = {
-        't_id': 'string',  
-        't_screen_name': 'string', 
-        't_name': 'string',
-        't_location': 'string',
-        't_url': 'string',
-        't_follower_count': 'integer',
-        't_following_count': 'integer'}
 
 # String list -> Map<String, User option>
 def user_fetch_screen_names(screen_names, conn):
@@ -162,7 +149,7 @@ def search_users(query):
         c = cursor
         if cursor is None:
             c = '1'
-        response = rated_request('users/search.json', {'page': c, 'count': 20, 'q': query}, conn, auth=_user_auth)
+        response = rated_request('users/search.json', {'page': c, 'count': 20, 'q': query}, conn, auth=_user_auth())
         print(response.status_code, response.headers)
         return response
     def extract_cursor(response):
@@ -170,3 +157,43 @@ def search_users(query):
     def extract_items(response):
         return (user_from_json(data) for data in response.json())
     return misc.paginate_api(make_request, extract_cursor, extract_items)
+
+user_schema = {
+        'id': 'string',  
+        'screen_name': 'string', 
+        'name': 'string',
+        'location': 'string',
+        'url': 'string',
+        'follower_count': 'integer',
+        'following_count': 'integer'}
+
+def user_serialize(user):
+    return user._asdict()
+
+def user_label(user):
+    return user.screen_name
+
+user_visualizer = NodeVisualizer(
+        schema=user_schema,
+        serialize=user_serialize,
+        label=user_label)
+
+def user_out_gen(user, conn):
+    for friend in user_friends(user, conn):
+        yield friend
+
+def user_in_gen(user, conn): 
+    return []
+
+def user_select_leaves(leaves):
+    sorted_leaves =  list(sorted(leaves, 
+        key=lambda f: max(f.follower_count, f.following_count)))
+    midpoint = int(len(sorted_leaves) / 2)
+    s = max(midpoint - 25, 0)
+    e = max(midpoint + 25, len(sorted_leaves))
+    return sorted_leaves[s:e]
+
+user_walk = Walk(
+        out_gen=user_out_gen,
+        in_gen=user_in_gen,
+        select_leaves=user_select_leaves)

@@ -1,16 +1,16 @@
 from itertools import islice
+from network import walk_edges
+from visualization import graph_to_gefx
 import os
-import sys
 import argparse
+import sqlite3
+import misc
 import stack
 import twitter
 import github
-import sqlite3
 import common
-import deanon
 import graph
-from network import stack_walk, twitter_walk, github_walk, walk_edges
-import misc
+import deanon
 
 def run_stuff(conn):
     while True:
@@ -77,8 +77,8 @@ def pull_username_graph(conn, username, do_stack, do_twitter, do_github, nodes, 
     if do_stack:
         users = stack.user_fetch_display_name_all(username, conn)
         if len(users) == 1:
-            g = graph.pull_n_nodes(nodes, walk_edges(users[0], stack_walk, conn))
-            graph.write_stack(g, base_path + '_stack.gexf')
+            g = graph.pull_n_nodes(nodes, walk_edges(users[0], stack.user_walk, conn))
+            graph_to_gefx(g, stack.user_visualizer).write(base_path + '_stack.gexf')
         elif len(users) == 0:
             print('Stack user does not exist')
         else:
@@ -86,15 +86,15 @@ def pull_username_graph(conn, username, do_stack, do_twitter, do_github, nodes, 
     if do_twitter:
         user = twitter.user_fetch_screen_name(username, conn)
         if user is not None:
-            g = graph.pull_n_nodes(nodes, walk_edges(user, twitter_walk, conn))
-            graph.write_twitter(g, base_path + '_twitter.gexf')
+            g = graph.pull_n_nodes(nodes, walk_edges(user, twitter.user_walk, conn))
+            graph_to_gefx(g, twitter.user_visualizer).write(base_path + '_twitter.gexf')
         else:
             print('Twitter user does not exist')
     if do_github:
         user = github.user_fetch_login(username, conn)
         if user is not None:
-            g = graph.pull_n_nodes(nodes, walk_edges(user, github_walk, conn))
-            graph.write_github(g, base_path + '_github.gexf')
+            g = graph.pull_n_nodes(nodes, walk_edges(user, github.user_walk, conn))
+            graph_to_gefx(g, github.user_visualizer).write(base_path + '_github.gexf')
         else:
             print('Github user does not exist')
 
@@ -106,19 +106,15 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
     if g_user and t_user:
         base_path = out_dir + '/' + username
         while True:
-            try:
-                (t_net, g_net, tg_seeds) = deanon.seed_tg(t_user, g_user, seeds, nodes, batch, conn)
-                mashed = graph.mash(t_net, g_net, tg_seeds, deanon.mash_tg)
-                graph.to_gefx(
-                        mashed, 
-                        deanon.tg_attribute_schema, 
-                        deanon.serialize_tg, 
-                        deanon.label_tg).write(base_path + '_mash.gexf')
-                graph.write_twitter(t_net, base_path + '_twitter.gexf')
-                graph.write_github(g_net, base_path + '_github.gexf')
+            # try:
+                attacker_data = common.tg_attacker_data(t_user, g_user, seeds, nodes, batch, conn)
+                mashed = deanon.mash_attacker_data(attacker_data)
+                graph_to_gefx(mashed, common.tg_visualizer).write(base_path + '_mash.gexf')
+                graph_to_gefx(attacker_data.target, twitter.user_visualizer).write(base_path + '_twitter.gexf')
+                graph_to_gefx(attacker_data.aux, github.user_visualizer).write(base_path + '_github.gexf')
                 break
-            except Exception as e:
-                print(e)
+            # except Exception as e:
+                # print(e)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -149,6 +145,8 @@ if __name__ == '__main__':
     deanon_parser = subparsers.add_parser('tg_deanon')
     deanon_parser.add_argument('username')
     deanon_parser.add_argument('out_dir')
+    deanon_parser.add_argument('--github', nargs='?', const=True, default=False)
+    deanon_parser.add_argument('--stack', nargs='?', const=True, default=False)
     deanon_parser.add_argument('-n', '--nodes', type=int, default=10000)
     deanon_parser.add_argument('-s', '--seeds', type=int, default=20)
     deanon_parser.add_argument('-b', '--batch', type=int, default=500)
@@ -176,4 +174,9 @@ if __name__ == '__main__':
                 parsed.stack, parsed.twitter, parsed.github, 
                 parsed.nodes, parsed.out_dir)
     elif parsed.command_name == 'tg_deanon':
-        deanon_user(conn, parsed.username, parsed.seeds, parsed.nodes, parsed.batch, parsed.out_dir)
+        deanon_user(conn, 
+                username=parsed.username, 
+                seeds=parsed.seeds, 
+                nodes=parsed.nodes, 
+                batch=parsed.batch, 
+                out_dir=parsed.out_dir)

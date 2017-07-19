@@ -1,51 +1,42 @@
-import graphviz as gv
-import networkx as nx
-import twitter
-import stack
-import sys
-import sqlite3
-import os
-import github
-import common
-import network
+from collections import namedtuple
+import xml.etree.cElementTree as ET
 
-def get_three_networks(s_user, t_user, g_user, out_dir, conn):
-    username = g_user.login
-    print('=' * 80, username, '=' * 80)
-    print('-' * 80, 'stackoverflow graph', '-' * 80)
-    stack_file = out_dir + '/stack.gml'
-    if not os.path.exists(stack_file):
-        stack_graph = stack_network(s_user, depth=2, conn=conn)
-        save_network(stack_graph, stack_file)
-    else:
-        print('file already exists')
-    print('-' * 80, 'twitter graph', '-' * 80)
-    twitter_file = out_dir + '/twitter.gml'
-    if not os.path.exists(twitter_file):
-        twitter_graph = twitter_network(t_user, depth=2, conn=conn)
-        save_network(twitter_graph, twitter_file)
-    else:
-        print('file already exists')
-    print('-' * 80, 'github graph', '-' * 80)
-    github_file = out_dir + '/github.gml'
-    if not os.path.exists(github_file):
-        github_graph = github_network(g_user, depth=2, conn=conn)
-        save_network(github_graph, github_file)
-    else:
-        print('file already exists')
+NodeVisualizer = namedtuple('NodeVisualizer', 'schema serialize label')
 
-def common_networks(out_dir, conn):
-    if not os.path.isdir(out_dir):
-        os.mkdir(out_dir)
-    for (s_user, t_user, g_user) in common.filtered(conn):
-        target_dir = out_dir + '/' + g_user.login
-        if not os.path.exists(target_dir):
-            os.mkdir(target_dir)
-        get_three_networks(s_user, t_user, g_user, target_dir, conn)
+def multi_visualization(schemas, type_legend):
+    schema = {'node_type': 'string'}
+    for t, (prefix, node_vis)  in schemas:
+        schema.update(misc.prefix_keys(node_vis.schema, prefix))
+    def multi_serialize(node):
+        (prefix, nod_vis) = type_legend[type(node)]
+        return misc.prefix_keys(node_vis.serialize(node), prefix)
+    def multi_labeler(node):
+        (prefix, node_vis) = type_legend[type(node)]
+        return prefix + node_vis.label(node)
 
-with sqlite3.connect('data/data.db') as conn:
-    # g = common_graphs(20, cursor)
-    # g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
-    # save_network(g, sys.argv[2])
-    # get_three_networks('mwilliams', 23909, 'mwilliams', cursor)
-    common_networks('outputs', conn)
+def graph_to_gefx(graph, node_vis):
+    root = ET.Element('gefx', xmlns='http://www.gefx.net/1.2draft', version='1.2')
+    g = ET.Element('graph', mode='static', defaultedgetype='directed')
+    nodes = ET.Element('nodes')
+    attributes = ET.Element('attributes', {'class': 'node'})
+    attr_key = {}
+    for i, (a_name, a_type) in enumerate(node_vis.schema.items()):
+        attr_key[a_name] = i
+        attributes.append(ET.Element('attribute', {'id': str(i), 'title': a_name, 'type': a_type}))
+    attr_key = {attr: i for i, attr in enumerate(node_vis.schema)}
+    for node_id, node in graph.nodes.items():
+        n = ET.Element('node', id=str(node_id), label=node_vis.label(node))
+        attvalues = ET.Element('attvalues')
+        for k, v in node_vis.serialize(node).items():
+            if v is not None:
+                attvalues.append(ET.Element('attvalue', {'for': str(attr_key[k]), 'value': str(v)}))
+        n.append(attvalues)
+        nodes.append(n)
+    edges = ET.Element('edges')
+    for index, (f, t) in enumerate(graph.edges):
+        edges.append(ET.Element('edge', id=str(index), source=str(f), target=str(t)))
+    g.append(attributes)
+    g.append(nodes)
+    g.append(edges)
+    root.append(g)
+    return ET.ElementTree(root)

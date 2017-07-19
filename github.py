@@ -1,15 +1,11 @@
-import requests
-import time
-import datetime
-import sqlite3
-import itertools
-import keys
-import re
-import misc
-import rest
+from network import Walk
+from visualization import NodeVisualizer
 from misc import clean_str_key
 from datetime import datetime
 from collections import namedtuple
+import keys
+import misc
+import rest
 
 def graphql_request(query, conn):
     def make_request():
@@ -61,24 +57,6 @@ def user_from_json(data):
             name=clean_str_key(data, 'name'),
             website_url=clean_str_key(data, 'websiteUrl'),
             company=clean_str_key(data, 'company'))
-
-def serialize_user(user):
-    return {'g_id': user.id,
-            'g_login': user.login,
-            'g_location': user.location,
-            'g_email': user.email,
-            'g_name': user.name,
-            'g_website_url': user.website_url,
-            'g_company': user.company}
-
-user_attribute_schema = {
-        'g_id': 'string', 
-        'g_login': 'string', 
-        'g_location': 'string',
-        'g_email': 'string',
-        'g_name': 'string',
-        'g_website_url': 'string',
-        'g_company': 'string'}
 
 # Dict -> Repo
 def repo_from_json(data):
@@ -198,3 +176,45 @@ def user_contributed_repos(user, conn):
                 paginate_gql_connection(baseQuery, ['user', 'contributedRepositories'], conn))
     else:
         return []
+
+user_attribute_schema = {
+        'id': 'string', 
+        'login': 'string', 
+        'location': 'string',
+        'email': 'string',
+        'name': 'string',
+        'website_url': 'string',
+        'company': 'string'}
+
+def user_serialize(user):
+    return user._asdict()
+
+def user_label(user):
+    return user.login
+
+user_visualizer = NodeVisualizer(
+        schema=user_attribute_schema,
+        serialize=user_serialize,
+        label=user_label)
+
+def user_out_gen(user, conn):
+    for repo in user_contributed_repos(user, conn):
+        yield user_fetch_login(repo.owner_login, conn)
+
+def user_in_gen(user, conn):
+    for repo in user_repos(user, conn):
+        if not repo.is_fork:
+            for contributor in repo_contributors(repo, conn):
+                yield contributor
+
+def user_select_leaves(leaves): 
+    for leaf in leaves:
+        if leaf.login == 'Try-Git':
+            continue
+        else: 
+            yield leaf
+
+user_walk = Walk(
+        out_gen=user_out_gen,
+        in_gen=user_in_gen,
+        select_leaves=user_select_leaves)

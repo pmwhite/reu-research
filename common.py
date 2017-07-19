@@ -1,10 +1,11 @@
-import sqlite3
+from itertools import groupby, islice
+from misc import grouper
+from network import degree
+from visualization import NodeVisualizer
+import deanon
 import github
 import stack
 import twitter
-from itertools import groupby, islice
-from misc import grouper
-from network import stack_walk, twitter_walk, github_walk, degree
 
 def check_username(username, conn):
     stack_rows = conn.execute(
@@ -49,8 +50,28 @@ def unique_username_matches(conn, after=None):
 
 def active_unique_username_matches(conn, s_limit, t_limit, g_limit, after=None):
     for s, t, g in unique_username_matches(conn, after=after):
-        # print(g.login)
-        if degree(s, stack_walk, conn) >= s_limit:
-            if degree(g, github_walk, conn) >= g_limit:
-                if degree(t, twitter_walk, conn) >= t_limit:
+        if degree(s, stack.user_walk, conn) >= s_limit:
+            if degree(g, github.user_walk, conn) >= g_limit:
+                if degree(t, twitter.user_walk, conn) >= t_limit:
                     yield (s, t, g)
+
+def tg_is_seed(t_user, g_user):
+    return (g_user.login == t_user.screen_name and
+            g_user.name is not None and 
+            t_user.name is not None and 
+            ' ' in g_user.name and 
+            g_user.name == t_user.name)
+
+def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
+    return deanon.collect_attacker_data(
+            target_root=t_user, 
+            aux_root=g_user,
+            target_walk=twitter.user_walk,
+            aux_walk=github.user_walk,
+            seed_pred=tg_is_seed,
+            max_seeds=num_seeds,
+            max_nodes=num_nodes,
+            batch_size=batch_size,
+            conn=conn)
+
+tg_visualizer = deanon.mashed_visualizer(twitter.user_visualizer, github.user_visualizer)

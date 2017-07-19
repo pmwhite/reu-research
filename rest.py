@@ -4,8 +4,6 @@ import requests
 import time
 import sqlite3
 
-shelf = shelve.open('data/shelf')
-
 def find_str_db(s, conn):
     row = conn.execute('SELECT Response FROM HttpRequests WHERE Request = ?', [s]).fetchone()
     if row is not None:
@@ -49,9 +47,3 @@ def cached_post(conn, url, data=None, json=None, **kwargs):
                 time.sleep(3)
         store_str_db(h, response, conn)
         return (False, response)
-
-def migrate_to_sqlite(conn):
-    for i, request_str in enumerate(shelf.keys()):
-        response = shelf[request_str]
-        conn.execute('INSERT INTO HttpRequests VALUES(?,?)', (request_str, sqlite3.Binary(pickle.dumps(response))))
-        if i % 1 == 0: print(i)
