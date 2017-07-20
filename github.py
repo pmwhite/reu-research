@@ -1,5 +1,5 @@
 from network import Walk
-from visualization import NodeVisualizer
+from visualization import GexfWritable, CsvWritable
 from misc import clean_str_key
 from datetime import datetime
 from collections import namedtuple
@@ -192,10 +192,15 @@ def user_serialize(user):
 def user_label(user):
     return user.login
 
-user_visualizer = NodeVisualizer(
+user_gexf = GexfWritable(
         schema=user_attribute_schema,
         serialize=user_serialize,
         label=user_label)
+
+user_csv = CsvWritable(
+        to_row=lambda user: list(user),
+        from_row=lambda row: User(*row),
+        cols='id login location email name website_url company'.split(' '))
 
 def user_out_gen(user, conn):
     for repo in user_contributed_repos(user, conn):

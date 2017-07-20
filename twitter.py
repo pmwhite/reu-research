@@ -3,7 +3,7 @@ import keys
 import misc
 import rest
 from network import Walk
-from visualization import NodeVisualizer
+from visualization import GexfWritable, CsvWritable
 from datetime import datetime
 from misc import grouper, clean_str_key
 from collections import namedtuple
@@ -173,10 +173,15 @@ def user_serialize(user):
 def user_label(user):
     return user.screen_name
 
-user_visualizer = NodeVisualizer(
+user_gexf = GexfWritable(
         schema=user_schema,
         serialize=user_serialize,
         label=user_label)
+
+user_csv = CsvWritable(
+        to_row=lambda user: list(user),
+        from_row=lambda row: User(*row),
+        cols='id screen_name name location url follower_count following_count'.split(' '))
 
 def user_out_gen(user, conn):
     for friend in user_friends(user, conn):

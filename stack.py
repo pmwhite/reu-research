@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 import re
 from network import Walk
-from visualization import NodeVisualizer
+from visualization import GexfWritable, CsvWritable
 from misc import clean_str_key
 from collections import namedtuple
 from datetime import datetime
@@ -208,10 +208,15 @@ def user_serialize(user):
 def user_label(user):
     return user.display_name
 
-node_visualizer = NodeVisualizer(
+user_gexf = GexfWritable(
         schema=user_attribute_schema,
         serialize=user_serialize,
         label=user_label)
+
+user_csv = CsvWritable(
+        to_row=lambda user: list(user),
+        from_row=lambda row: User(*row),
+        cols='id display_name reputation website_url age location'.split(' '))
 
 user_walk = Walk(
         out_gen=user_questioners,

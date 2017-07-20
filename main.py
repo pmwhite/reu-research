@@ -1,9 +1,10 @@
 from itertools import islice
 from network import walk_edges
-from visualization import graph_to_gefx
+from visualization import write_gexf
 import os
 import argparse
 import sqlite3
+import pickle
 import misc
 import stack
 import twitter
@@ -20,7 +21,7 @@ def run_stuff(conn):
                 if not os.path.isfile('outputs/twitter_' + t_user.screen_name + '.gexf'):
                     (t_net, g_net, tg_seeds) = deanon.seed_tg(t_user, g_user, 20, conn)
                     mashed = graph.mash(t_net, g_net, tg_seeds, deanon.mash_tg)
-                    graph.to_gefx(
+                    graph.to_gexf(
                             mashed, 
                             deanon.tg_attribute_schema, 
                             deanon.serialize_tg, 
@@ -78,7 +79,7 @@ def pull_username_graph(conn, username, do_stack, do_twitter, do_github, nodes, 
         users = stack.user_fetch_display_name_all(username, conn)
         if len(users) == 1:
             g = graph.pull_n_nodes(nodes, walk_edges(users[0], stack.user_walk, conn))
-            graph_to_gefx(g, stack.user_visualizer).write(base_path + '_stack.gexf')
+            write_gexf(g, stack.user_gexf).write(base_path + '_stack.gexf')
         elif len(users) == 0:
             print('Stack user does not exist')
         else:
@@ -87,14 +88,14 @@ def pull_username_graph(conn, username, do_stack, do_twitter, do_github, nodes, 
         user = twitter.user_fetch_screen_name(username, conn)
         if user is not None:
             g = graph.pull_n_nodes(nodes, walk_edges(user, twitter.user_walk, conn))
-            graph_to_gefx(g, twitter.user_visualizer).write(base_path + '_twitter.gexf')
+            write_gexf(g, twitter.user_gexf).write(base_path + '_twitter.gexf')
         else:
             print('Twitter user does not exist')
     if do_github:
         user = github.user_fetch_login(username, conn)
         if user is not None:
             g = graph.pull_n_nodes(nodes, walk_edges(user, github.user_walk, conn))
-            graph_to_gefx(g, github.user_visualizer).write(base_path + '_github.gexf')
+            write_gexf(g, github.user_gexf).write(base_path + '_github.gexf')
         else:
             print('Github user does not exist')
 
@@ -106,15 +107,17 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
     if g_user and t_user:
         base_path = out_dir + '/' + username
         while True:
-            try:
+            # try:
                 attacker_data = common.tg_attacker_data(t_user, g_user, seeds, nodes, batch, conn)
                 mashed = deanon.mash_attacker_data(attacker_data)
-                graph_to_gefx(mashed, common.tg_visualizer).write(base_path + '_mash.gexf')
-                graph_to_gefx(attacker_data.target, twitter.user_visualizer).write(base_path + '_twitter.gexf')
-                graph_to_gefx(attacker_data.aux, github.user_visualizer).write(base_path + '_github.gexf')
+                write_gexf(mashed, common.tg_gexf).write(base_path + '_mash.gexf')
+                write_gexf(attacker_data.target, twitter.user_gexf).write(base_path + '_twitter.gexf')
+                write_gexf(attacker_data.aux, github.user_gexf).write(base_path + '_github.gexf')
+                with open(base_path + '_attack.pickle', 'wb') as f:
+                    pickle.dump(attacker_data, f)
                 break
-            except Exception as e:
-                print(e)
+            # except Exception as e:
+                # print(e)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -142,7 +145,7 @@ if __name__ == '__main__':
     graph_parser.add_argument('--stack', nargs='?', const=True, default=False)
     graph_parser.add_argument('-n', '--nodes', type=int, default=6000)
 
-    deanon_parser = subparsers.add_parser('tg_deanon')
+    deanon_parser = subparsers.add_parser('pack_attack')
     deanon_parser.add_argument('username')
     deanon_parser.add_argument('out_dir')
     deanon_parser.add_argument('--github', nargs='?', const=True, default=False)
@@ -173,7 +176,7 @@ if __name__ == '__main__':
                 conn, parsed.username, 
                 parsed.stack, parsed.twitter, parsed.github, 
                 parsed.nodes, parsed.out_dir)
-    elif parsed.command_name == 'tg_deanon':
+    elif parsed.command_name == 'pack_attack':
         deanon_user(conn, 
                 username=parsed.username, 
                 seeds=parsed.seeds, 

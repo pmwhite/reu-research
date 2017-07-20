@@ -59,7 +59,7 @@ def union(g1, g2):
 def mash(g1, g2, seeds, masher):
     g1_mashed_nodes = {h1: masher(n1, None) for h1, n1 in g1.nodes.items()}
     g2_mashed_nodes = {h2: masher(None, n2) for h2, n2 in g2.nodes.items()}
-    seed_data = {(misc.hash(n1), misc.hash(n2)): masher(n1, n2) for n1, n2 in seeds}
+    seed_data = {(h1, h2): masher(g1.nodes[h1], g2.nodes[h2]) for h1, h2 in seeds}
     g1_seed_nodes = {h1: seed for (h1, h2), seed in seed_data.items()}
     g2_seed_nodes = {h2: seed for (h1, h2), seed in seed_data.items()}
     g1_convert = {**g1_mashed_nodes, **g1_seed_nodes}

@@ -1,7 +1,6 @@
 from itertools import groupby, islice
 from misc import grouper
 from network import degree
-from visualization import NodeVisualizer
 import deanon
 import github
 import stack
@@ -74,4 +73,4 @@ def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
             batch_size=batch_size,
             conn=conn)
 
-tg_visualizer = deanon.mashed_visualizer(twitter.user_visualizer, github.user_visualizer)
+tg_gexf = deanon.mashed_gexf(twitter.user_gexf, github.user_gexf)
