@@ -76,12 +76,10 @@ def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
 
 def tg_3_hop_seeds(t_user, g_user, batch_size, conn):
     return dataset.n_hop_clustered_seed_search(
-            target_root=t_user, 
-            aux_root=g_user,
-            target_walk=twitter.user_walk,
-            aux_walk=github.user_walk,
+            initial_seed=(t_user, g_user),
+            t_walk=twitter.user_walk,
+            a_walk=github.user_walk,
             seed_pred=tg_is_seed,
-            n=3,
             cluster_size=7,
             conn=conn)
 

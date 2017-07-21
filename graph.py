@@ -1,36 +1,24 @@
 from collections import namedtuple
-from itertools import islice
+from itertools import islice, product, chain
 import misc
 
-Graph = namedtuple('Graph', 'nodes edges')
-
 def empty_graph():
-    return Graph(nodes={}, edges=set())
+    return {}
 
 def add_edge(graph, f, t):
-    f_hash = misc.hash(f)
-    t_hash = misc.hash(t)
-    if f_hash not in graph.nodes:
-        graph.nodes[f_hash] = f
-    if t_hash not in graph.nodes:
-        graph.nodes[t_hash] = t
-    graph.edges.add((f_hash, t_hash))
-
-def add_edges_from(graph, edges_iter):
-    for f, t in edges_iter:
-        add_edge(graph, f, t)
-
-def from_edges(edges_iter):
-    graph = empty_graph()
-    add_edges_from(graph, edges_iter)
-    return graph
+    if f not in graph:
+        graph[f] = set()
+    if t not in graph:
+        graph[t] = set()
+    graph[t].add(f)
+    graph[f].add(t)
 
 def pull_n_nodes(n, edges_iter):
     graph = empty_graph()
     prev_size = 0
     for f, t in edges_iter:
         add_edge(graph, f, t)
-        size = len(graph.nodes) 
+        size = len(graph) 
         if size > prev_size:
             misc.progress(n, size)
             prev_size = size
@@ -38,33 +26,30 @@ def pull_n_nodes(n, edges_iter):
             break
     return graph
 
-def n_surrounding_nodes(graph, node_hash, n):
-    edge_m = edge_map(graph)
-    return islice(misc.breadth_first_walk(node_hash, lambda node: edge_m[node]), n)
+def edges(graph):
+    result = set()
+    for f, connections in graph.items():
+        for t in connections:
+            if (f, t) not in result and (t, f) not in result:
+                result.add((f, t))
+    return result
 
-def edge_map(graph):
-    edge_sets = {key: set() for key, value in graph.nodes.items()}
-    for f, t in graph.edges:
-        edge_sets[f].add(t)
-        edge_sets[t].add(f)
-    return edge_sets
+def surrounding_nodes(graph, center):
+    return misc.breadth_first_walk(center, lambda x: graph[x])
 
 def union(g1, g2):
-    return Graph(
-            nodes={**g2.nodes, **g1.nodes},
-            edges=(g1.edges | g2.edges))
+    return {node: g1.get(node, set()) | g2.get(node, set()) for node in chain(g1, g2)}
 
-def mash(g1, g2, seeds, masher):
-    g1_mashed_nodes = {h1: masher(n1, None) for h1, n1 in g1.nodes.items()}
-    g2_mashed_nodes = {h2: masher(None, n2) for h2, n2 in g2.nodes.items()}
-    seed_data = {(h1, h2): masher(g1.nodes[h1], g2.nodes[h2]) for h1, h2 in seeds}
-    g1_seed_nodes = {h1: seed for (h1, h2), seed in seed_data.items()}
-    g2_seed_nodes = {h2: seed for (h1, h2), seed in seed_data.items()}
-    g1_convert = {**g1_mashed_nodes, **g1_seed_nodes}
-    g2_convert = {**g2_mashed_nodes, **g2_seed_nodes}
-    all_nodes = set(g1_convert.values()).union(g2_convert.values())
-    all_edges = {(misc.hash(g1_convert[f]), misc.hash(g1_convert[t])) for f, t in g1.edges}.union(
-            (misc.hash(g2_convert[f]), misc.hash(g2_convert[t])) for f, t in g2.edges)
-    return Graph(
-            nodes={misc.hash(node): node for node in all_nodes}, 
-            edges=all_edges)
+def seed(g1, g2, pred):
+    return {(n1, n2) for n1, n2 in product(g1, g2) if pred(n1, n2)}
+
+def zip_with(g1, g2, seeds, zipper):
+    g1_mashed = {node: zipper(node, None) for node in g1}
+    g2_mashed = {node: zipper(None, node) for node in g2}
+    seed_data = {(n1, n2, zipper(n1, n2)) for n1, n2 in seeds}
+    g1_seeds = {n1: mashed for n1, n2, mashed in seed_data}
+    g2_seeds = {n2: mashed for n1, n2, mashed in seed_data}
+    g1_convert = {**g1_mashed, **g1_seeds}
+    g2_convert = {**g2_mashed, **g2_seeds}
+    return {**{g1_convert[node]: {g1_convert[conn] for conn in connections} for node, connections in g1.items()},
+            **{g2_convert[node]: {g2_convert[conn] for conn in connections} for node, connections in g2.items()}}

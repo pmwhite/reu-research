@@ -1,5 +1,5 @@
 from collections import namedtuple
-from graph import Graph
+import graph
 import xml.etree.cElementTree as ET
 
 GexfWritable = namedtuple('GexfWritable', 'schema serialize label')
@@ -16,31 +16,31 @@ def multi_gexf(schemas, type_legend):
         (prefix, gexf) = type_legend[type(node)]
         return prefix + gexf.label(node)
 
-def write_gexf(graph, gexf):
+def write_gexf(g, gexf):
     root = ET.Element('gexf', xmlns='http://www.gexf.net/1.2draft', version='1.2')
-    g = ET.Element('graph', mode='static', defaultedgetype='directed')
+    g_tag = ET.Element('graph', mode='static', defaultedgetype='directed')
     nodes = ET.Element('nodes')
     attributes = ET.Element('attributes', {'class': 'node'})
+    node_key = {node: str(i) for i, node in enumerate(g)}
     attr_key = {}
     for i, (a_name, a_type) in enumerate(gexf.schema.items()):
-        attr_key[a_name] = i
+        attr_key[a_name] = str(i)
         attributes.append(ET.Element('attribute', {'id': str(i), 'title': a_name, 'type': a_type}))
-    attr_key = {attr: i for i, attr in enumerate(gexf.schema)}
-    for node_id, node in graph.nodes.items():
-        n = ET.Element('node', id=str(node_id), label=gexf.label(node))
+    for node, node_id in node_key.items():
+        node_tag = ET.Element('node', id=node_id, label=gexf.label(node))
         attvalues = ET.Element('attvalues')
         for k, v in gexf.serialize(node).items():
             if v is not None:
-                attvalues.append(ET.Element('attvalue', {'for': str(attr_key[k]), 'value': str(v)}))
-        n.append(attvalues)
-        nodes.append(n)
+                attvalues.append(ET.Element('attvalue', {'for': attr_key[k], 'value': str(v)}))
+        node_tag.append(attvalues)
+        nodes.append(node_tag)
     edges = ET.Element('edges')
-    for index, (f, t) in enumerate(graph.edges):
-        edges.append(ET.Element('edge', id=str(index), source=str(f), target=str(t)))
-    g.append(attributes)
-    g.append(nodes)
-    g.append(edges)
-    root.append(g)
+    for i, (f, t) in enumerate(graph.edges(g)):
+        edges.append(ET.Element('edge', id=str(i), source=node_key[f], target=node_key[t]))
+    g_tag.append(attributes)
+    g_tag.append(nodes)
+    g_tag.append(edges)
+    root.append(g_tag)
     return ET.ElementTree(root)
 
 def write_csv(graph, csv, base_file, sep='|'):
@@ -64,4 +64,4 @@ def read_csv(graph, csv, base_file, sep='|'):
         for line in f:
             row = line.split(sep)
             edges.add(row[0], row[1])
-    return Graph(nodes=nodes, edges=edges)
+    return {}
