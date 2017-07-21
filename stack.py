@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ET
 import re
 from network import Walk
 from visualization import GexfWritable, CsvWritable
-from misc import clean_str_key
+from rest import clean_str_key
 from collections import namedtuple
 from datetime import datetime
 

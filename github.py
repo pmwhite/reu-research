@@ -1,15 +1,15 @@
 from network import Walk
 from visualization import GexfWritable, CsvWritable
-from misc import clean_str_key
+from rest import clean_str_key
 from datetime import datetime
 from collections import namedtuple
 import keys
-import misc
 import rest
 
 def graphql_request(query, conn):
     def make_request():
         return rest.cached_post(
+                rate_family='github_graphql',
                 url='https://api.github.com/graphql',
                 params={'access_token': keys.GITHUB_KEY},
                 json={'query': query},
@@ -21,7 +21,7 @@ def graphql_request(query, conn):
                 '%Y-%m-%dT%H:%M:%SZ').timestamp()
         requests_left = info['remaining']
         return (reset_time, requests_left)
-    return misc.rated_request(make_request, extract_rate_info)
+    return rest.rated_request(make_request, extract_rate_info, rate_family='github_graphql')
 
 def paginate_gql_connection(baseQuery, nodes_path, conn):
     def make_request(cursor):
@@ -42,7 +42,7 @@ def paginate_gql_connection(baseQuery, nodes_path, conn):
             data = data[path_item]
         for node in data['nodes']:
             yield node
-    return misc.paginate_api(make_request, extract_cursor, extract_items)
+    return rest.paginate_api(make_request, extract_cursor, extract_items)
 
 User = namedtuple('User', 'id login location email name website_url company')
 Repo = namedtuple('Repo', 'id owner_id owner_login name language homepage is_fork')
@@ -89,7 +89,7 @@ def user_fetch_logins(logins, conn):
         }'''
     rate_snippet = 'rateLimit { remaining resetAt cost }'
     result = {}
-    for login_group in misc.grouper(logins, 100):
+    for login_group in rest.grouper(logins, 100):
         users_snippet = '\n'.join(
                 [user_snippet % (clean_login(login), login) for login in login_group])
         query_str = 'query {\n%s\n%s}' % (users_snippet, rate_snippet)

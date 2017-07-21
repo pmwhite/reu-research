@@ -5,6 +5,7 @@ data/
 backup/
 img/
 outputs/
+funfun/
 
 # Don't check keys into version control
 keys.py

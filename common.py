@@ -1,7 +1,8 @@
 from itertools import groupby, islice
-from misc import grouper
+from rest import grouper
 from network import degree
 import deanon
+import dataset
 import github
 import stack
 import twitter
@@ -62,7 +63,7 @@ def tg_is_seed(t_user, g_user):
             g_user.name == t_user.name))
 
 def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
-    return deanon.collect_attacker_data(
+    return deanon.breadth_first_seed_search(
             target_root=t_user, 
             aux_root=g_user,
             target_walk=twitter.user_walk,
@@ -73,4 +74,15 @@ def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
             batch_size=batch_size,
             conn=conn)
 
-tg_gexf = deanon.mashed_gexf(twitter.user_gexf, github.user_gexf)
+def tg_3_hop_seeds(t_user, g_user, batch_size, conn):
+    return dataset.n_hop_clustered_seed_search(
+            target_root=t_user, 
+            aux_root=g_user,
+            target_walk=twitter.user_walk,
+            aux_walk=github.user_walk,
+            seed_pred=tg_is_seed,
+            n=3,
+            cluster_size=7,
+            conn=conn)
+
+tg_gexf = dataset.mashed_gexf(twitter.user_gexf, github.user_gexf)

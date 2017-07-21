@@ -1,4 +1,5 @@
 from collections import namedtuple
+from itertools import islice
 import misc
 
 Graph = namedtuple('Graph', 'nodes edges')
@@ -6,43 +7,40 @@ Graph = namedtuple('Graph', 'nodes edges')
 def empty_graph():
     return Graph(nodes={}, edges=set())
 
-def add_edges_from(graph, edges_iter, hasher):
+def add_edge(graph, f, t):
+    f_hash = misc.hash(f)
+    t_hash = misc.hash(t)
+    if f_hash not in graph.nodes:
+        graph.nodes[f_hash] = f
+    if t_hash not in graph.nodes:
+        graph.nodes[t_hash] = t
+    graph.edges.add((f_hash, t_hash))
+
+def add_edges_from(graph, edges_iter):
     for f, t in edges_iter:
-        f_hash = hasher(f)
-        t_hash = hasher(t)
-        if f_hash not in graph.nodes:
-            graph.nodes[f_hash] = f
-        if t_hash not in graph.nodes:
-            graph.nodes[t_hash] = t
-        graph.edges.add((f_hash, t_hash))
+        add_edge(graph, f, t)
 
 def from_edges(edges_iter):
     graph = empty_graph()
-    for f, t in edges_iter:
-        f_hash = misc.hash(f)
-        t_hash = misc.hash(t)
-        if f_hash not in graph.nodes:
-            graph.nodes[f_hash] = f
-        if t_hash not in graph.nodes:
-            graph.nodes[t_hash] = t
-        graph.edges.add((f_hash, t_hash))
+    add_edges_from(graph, edges_iter)
     return graph
 
 def pull_n_nodes(n, edges_iter):
     graph = empty_graph()
+    prev_size = 0
     for f, t in edges_iter:
-        f_hash = misc.hash(f)
-        t_hash = misc.hash(t)
-        if f_hash not in graph.nodes:
-            graph.nodes[f_hash] = f
-            misc.progress(n, len(graph.nodes))
-        if t_hash not in graph.nodes:
-            graph.nodes[t_hash] = t
-            misc.progress(n, len(graph.nodes))
-        graph.edges.add((f_hash, t_hash))
-        if len(graph.nodes) >= n:
+        add_edge(graph, f, t)
+        size = len(graph.nodes) 
+        if size > prev_size:
+            misc.progress(n, size)
+            prev_size = size
+        if size >= n:
             break
     return graph
+
+def n_surrounding_nodes(graph, node_hash, n):
+    edge_m = edge_map(graph)
+    return islice(misc.breadth_first_walk(node_hash, lambda node: edge_m[node]), n)
 
 def edge_map(graph):
     edge_sets = {key: set() for key, value in graph.nodes.items()}

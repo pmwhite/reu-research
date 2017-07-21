@@ -5,13 +5,12 @@ import os
 import argparse
 import sqlite3
 import pickle
-import misc
-import stack
 import twitter
 import github
 import common
 import graph
 import deanon
+import dataset
 
 def run_stuff(conn):
     while True:
@@ -105,11 +104,11 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
     print(t_user)
     print(g_user)
     if g_user and t_user:
-        base_path = out_dir + '/' + username
+        base_path = out_dir + username
         while True:
             # try:
-                attacker_data = common.tg_attacker_data(t_user, g_user, seeds, nodes, batch, conn)
-                mashed = deanon.mash_attacker_data(attacker_data)
+                attacker_data = common.tg_3_hop_seeds(t_user, g_user, batch, conn)
+                mashed = dataset.mash_dataset(attacker_data)
                 write_gexf(mashed, common.tg_gexf).write(base_path + '_mash.gexf')
                 write_gexf(attacker_data.target, twitter.user_gexf).write(base_path + '_twitter.gexf')
                 write_gexf(attacker_data.aux, github.user_gexf).write(base_path + '_github.gexf')

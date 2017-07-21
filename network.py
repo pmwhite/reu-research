@@ -1,5 +1,6 @@
 from collections import namedtuple
 from itertools import chain
+import graph
 
 Walk = namedtuple('Walk', 'out_gen in_gen select_leaves')
 
@@ -16,7 +17,7 @@ def walk_edges(init, walk, conn):
                 new_leaves.add(in_node)
                 yield (in_node, leaf)
         leaves = new_leaves - nodes
-        nodes = nodes.union(leaves)
+        nodes = nodes | leaves
 
 def connections(x, walk, conn):
     return chain(walk.out_gen(x, conn), walk.in_gen(x, conn))
