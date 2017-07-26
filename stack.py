@@ -218,7 +218,8 @@ user_csv = CsvWritable(
         from_row=lambda row: User(*row),
         cols='id display_name reputation website_url age location'.split(' '))
 
-user_walk = Walk(
-        out_gen=user_questioners,
-        in_gen=user_answerers,
-        select_leaves=lambda leaves: leaves)
+def user_walk(conn):
+    return Walk(
+            out_gen=lambda user: user_questioners(user, conn),
+            in_gen=lambda user: user_answerers(user, conn),
+            select_leaves=lambda leaves: leaves)

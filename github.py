@@ -154,7 +154,12 @@ def user_contributed_repos(user, conn):
             }
             rateLimit { remaining resetAt }
         }'''
-    if graphql_request(isUserQuery, conn).json()['data']['repositoryOwner']['__typename'] == 'User':
+    req = graphql_request(isUserQuery, conn).json()
+    if req.get('data', None): 
+        print(req)
+        print(user)
+        print(isUserQuery)
+    if req['data']['repositoryOwner']['__typename'] == 'User':
         baseQuery = '''
             query { 
                 rateLimit { remaining resetAt cost }
@@ -216,10 +221,11 @@ def user_select_leaves(leaves):
     for leaf in leaves:
         if leaf.login == 'Try-Git':
             continue
-        else: 
+        else:
             yield leaf
 
-user_walk = Walk(
-        out_gen=user_out_gen,
-        in_gen=user_in_gen,
-        select_leaves=user_select_leaves)
+def user_walk(conn):
+    return Walk(
+            out_gen=lambda user: user_out_gen(user, conn),
+            in_gen=lambda user: user_in_gen(user, conn),
+            select_leaves=lambda leaves: user_select_leaves(leaves))

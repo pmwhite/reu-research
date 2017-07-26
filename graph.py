@@ -1,9 +1,19 @@
+# A module for dealing with Graphs. It's a really simple module that probably
+# isn't the most performant. Using something like NetworkX would probably be
+# better, but this was the simplest way to get exactly what I wanted without
+# dealing with a somewhat magic library (If I actually new how NetworkX worked,
+# maybe it wouldn't seem so much like magic). I welcome any contributions to
+# convert this module and any module that uses it to NetworkX.
+
 from collections import namedtuple
 from itertools import islice, product, chain
 import misc
 
 def empty_graph():
     return {}
+
+def singleton(node):
+    return {node: set()}
 
 def add_edge(graph, f, t):
     if f not in graph:
@@ -34,6 +44,9 @@ def edges(graph):
                 result.add((f, t))
     return result
 
+def size(graph):
+    return len(graph)
+
 def surrounding_nodes(graph, center):
     return misc.breadth_first_walk(center, lambda x: graph[x])
 
@@ -42,6 +55,20 @@ def union(g1, g2):
 
 def seed(g1, g2, pred):
     return {(n1, n2) for n1, n2 in product(g1, g2) if pred(n1, n2)}
+
+def distances(g, center, nodes):
+    result = {}
+    remaining = set(nodes)
+    for i, hop in enumerate(misc.hop_iter(center, lambda node: g[node])):
+        distance = i + 1
+        new_items = remaining.intersection(hop)
+        for item in new_items:
+            if item not in result:
+                result[item] = distance
+                remaining.remove(item)
+        if len(remaining) == 0:
+            break
+    return result
 
 def zip_with(g1, g2, seeds, zipper):
     g1_mashed = {node: zipper(node, None) for node in g1}

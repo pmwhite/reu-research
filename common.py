@@ -62,25 +62,10 @@ def tg_is_seed(t_user, g_user):
             ' ' in g_user.name and 
             g_user.name == t_user.name))
 
-def tg_attacker_data(t_user, g_user, num_seeds, num_nodes, batch_size, conn):
-    return deanon.breadth_first_seed_search(
-            target_root=t_user, 
-            aux_root=g_user,
-            target_walk=twitter.user_walk,
-            aux_walk=github.user_walk,
-            seed_pred=tg_is_seed,
-            max_seeds=num_seeds,
-            max_nodes=num_nodes,
-            batch_size=batch_size,
-            conn=conn)
-
-def tg_3_hop_seeds(t_user, g_user, batch_size, conn):
-    return dataset.n_hop_clustered_seed_search(
-            initial_seed=(t_user, g_user),
-            t_walk=twitter.user_walk,
-            a_walk=github.user_walk,
-            seed_pred=tg_is_seed,
-            cluster_size=7,
-            conn=conn)
+def tg_scenario(conn):
+    return dataset.Scenario(
+        t_walk=twitter.user_walk(conn),
+        a_walk=github.user_walk(conn),
+        seed_pred=tg_is_seed)
 
 tg_gexf = dataset.mashed_gexf(twitter.user_gexf, github.user_gexf)

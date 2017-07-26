@@ -191,15 +191,16 @@ def user_out_gen(user, conn):
 def user_in_gen(user, conn): 
     return []
 
-def user_select_leaves(leaves):
+def user_select_leaves(leaves, midpoint_radius=25):
     sorted_leaves =  list(sorted(leaves, 
         key=lambda f: max(f.follower_count, f.following_count)))
     midpoint = int(len(sorted_leaves) / 2)
-    s = max(midpoint - 25, 0)
-    e = max(midpoint + 25, len(sorted_leaves))
+    s = max(midpoint - midpoint_radius, 0)
+    e = max(midpoint + midpoint_radius, len(sorted_leaves))
     return sorted_leaves[s:e]
 
-user_walk = Walk(
-        out_gen=user_out_gen,
-        in_gen=user_in_gen,
-        select_leaves=user_select_leaves)
+def user_walk(conn):
+    return Walk(
+            out_gen=lambda user: user_out_gen(user, conn),
+            in_gen=lambda user: user_in_gen(user, conn),
+            select_leaves=lambda leaves: user_select_leaves(leaves))

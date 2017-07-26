@@ -1,3 +1,7 @@
+# A module for saving graphs to gexf and csv files. It uses a 'typeclass' for
+# each of those two formats, so each graph item type should implement one of
+# those. Pass the typeclass to the function that writes the output.
+
 from collections import namedtuple
 import graph
 import xml.etree.cElementTree as ET
@@ -43,25 +47,29 @@ def write_gexf(g, gexf):
     root.append(g_tag)
     return ET.ElementTree(root)
 
-def write_csv(graph, csv, base_file, sep='|'):
+def write_csv(g, csv, base_file, sep='|'):
+    node_id_key = {}
     with open(base_file + '_nodes.csv', 'w') as f:
-        f.write(sep.join(csv.cols) + '\n')
-        f.writelines(h + sep + sep.join(csv.to_row(node)) + '\n' for h, node in graph.nodes.items())
+        f.write('node_id', sep.join(csv.cols) + '\n')
+        for i, node in enumerate(g):
+            node_id_key[node] = str(i)
+            f.write(str(i) + sep + sep.join(csv.to_csv(node)) + '\n')
     with open(base_file + '_edges.csv', 'w') as f:
         f.write('from' + sep + 'to\n')
-        f.writelines(f + sep + t + '\n' for f, t in graph.edges)
+        for f, t in graph.edges(g):
+            f.write(node_id_key[f] + sep + node_id_key[t] + '\n')
 
-def read_csv(graph, csv, base_file, sep='|'):
-    nodes = {}
-    edges = set()
+def read_csv(csv, base_file, sep='|'):
+    id_node_key = {}
     with open(base_file + '_nodes.csv', 'r') as f:
         cols = next(f)
         for line in f:
             row = line.split(sep)
-            nodes[row[0]] = csv.from_row(row[1:])
+            id_node_key[row[0]] = csv.from_row(row[1:])
     with open(base_file + '_edges.csv', 'r') as f:
         cols = next(f)
+        g = graph.empty_graph()
         for line in f:
             row = line.split(sep)
-            edges.add(row[0], row[1])
-    return {}
+            graph.add_edge(g, id_node_key(row[0]), id_node_key(row[1]))
+    return g

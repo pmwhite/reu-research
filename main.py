@@ -12,6 +12,23 @@ import graph
 import deanon
 import dataset
 
+def stubborn(f):
+    while True:
+        try:
+            f()
+            break
+        except Exception as e:
+           print(e)
+
+
+def main1():
+    with sqlite3.connect('data/data.db') as conn:
+        username = 'abidibo'
+        g_user = github.user_fetch_login(username, conn)
+        t_user = twitter.user_fetch_screen_name(username, conn)
+        dset = dataset.simple_batch_seed_cluster((t_user, g_user), common.tg_scenario(conn), 10, 10000)
+        write_gexf(dset.target, twitter.user_gexf).write('funfun/abidibo_main1')
+
 def run_stuff(conn):
     while True:
         try:
@@ -106,7 +123,7 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
     if g_user and t_user:
         base_path = out_dir + username
         while True:
-            # try:
+            try:
                 attacker_data = common.tg_3_hop_seeds(t_user, g_user, batch, conn)
                 mashed = dataset.mash_dataset(attacker_data)
                 write_gexf(mashed, common.tg_gexf).write(base_path + '_mash.gexf')
@@ -115,10 +132,10 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
                 with open(base_path + '_attack.pickle', 'wb') as f:
                     pickle.dump(attacker_data, f)
                 break
-            # except Exception as e:
-                # print(e)
+            except Exception as e:
+                print(e)
 
-if __name__ == '__main__':
+def argparser():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='command_name')
 
@@ -182,3 +199,5 @@ if __name__ == '__main__':
                 nodes=parsed.nodes, 
                 batch=parsed.batch, 
                 out_dir=parsed.out_dir)
+
+main1()

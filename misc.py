@@ -21,22 +21,27 @@ def prefix_keys(d, prefix):
 def select_keys(d, keys):
     return {d[key] for key in keys}
 
-def breadth_first_walk(root, expand):
-    yield root
-    found = {root}
-    search_queue = deque()
-    search_queue.append(root)
+def breadth_first_walk_from(roots, expand):
+    found = set(roots)
+    search_queue = deque(found)
+    yield from search_queue
     while len(search_queue) != 0:
         x = search_queue.popleft()
-        for item in expand(x):
+        expanded = expand(x)
+        if expanded == None:
+            return
+        for item in expanded:
             if item not in found:
                 found.add(item)
                 yield item
                 search_queue.append(item)
 
-def hop_iter(root, expand):
-    found = {root}
-    leaves = {root}
+def breadth_first_walk(root, expand):
+    return breadth_first_walk_from({root}, expand)
+
+def hop_iter_from(roots, expand):
+    found = set(roots)
+    leaves = set(found)
     while len(leaves) != 0:
         yield leaves
         new_leaves = set()
@@ -44,3 +49,6 @@ def hop_iter(root, expand):
             new_leaves.update(item for item in expand(leaf) if item not in found)
         leaves = new_leaves - found
         found = found | new_leaves
+
+def hop_iter(root, expand):
+    return hop_iter_from({root}, expand)

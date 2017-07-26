@@ -1,74 +1,78 @@
 from itertools import islice, product, combinations, takewhile
-import itertools
+from collections import deque, namedtuple
 from visualization import GexfWritable
 from network import walk_edges
-from collections import namedtuple
-import random
 import misc
 import graph
-from collections import deque, namedtuple
 
 DataSet = namedtuple('DataSet', 'target aux seeds root')
+Scenario = namedtuple('Scenario', 't_walk a_walk seed_pred')
 
-def closest_seeds(initial_seed, target_walk, aux_walk, seed_pred, batch_size, conn):
+def union(dataset1, dataset2):
+    return DataSet(
+            target=graph.union(dataset1.target, dataset2.target),
+            aux=graph.union(dataset1.aux, dataset2.aux),
+            seeds=set.union(dataset1.seeds, dataset2.seeds),
+            root=dataset1.root)
+
+def singleton(seed):
+    return DataSet(
+            target=graph.singleton(seed[0]),
+            aux=graph.singleton(seed[1]),
+            seeds={seed},
+            root=seed[0])
+
+def breadth_first_seed_explore(initial_dataset, expander, quit_pred):
+    result = initial_dataset
     def expand(seed):
-        (t, a) = seed
-        t_explore = graph.pull_n_nodes(batch_size, walk_edges(t, target_walk, conn))
-        a_explore = graph.pull_n_nodes(batch_size, walk_edges(a, aux_walk, conn))
-        return graph.seed(t_explore, a_explore, seed_pred)
-    return misc.breadth_first_walk(initial_seed, expand)
+        new_data = expander(seed)
+        nonlocal result
+        result = union(result, new_data)
+        if quit_pred(result):
+            return None
+        else:
+            return new_data.seeds
+    for seed in misc.breadth_first_walk_from(result.seeds, expand):
+        continue
+    return result
 
-def n_hop_clustered_seed_search(
-        initial_seed, t_walk, a_walk, 
-        seed_pred, cluster_size, conn):
-    t_graph = graph.empty_graph()
-    a_graph = graph.empty_graph()
-    seeds = set(islice(closest_seeds(initial_seed, t_walk, a_walk, seed_pred, 500, conn), cluster_size))
-    leaves = seeds
-    for batch_size in [500, 200]:
-        new_leaves = set()
-        for seed_t, seed_a in misc.progress_list(list(leaves)):
-            t_explore = graph.pull_n_nodes(batch_size, walk_edges(seed_t, t_walk, conn))
-            a_explore = graph.pull_n_nodes(batch_size, walk_edges(seed_a, a_walk, conn))
-            new_seeds = graph.seed(t_explore, a_explore, seed_pred)
-            new_leaves.update(new_seeds)
-            t_graph = graph.union(t_graph, t_explore)
-            a_graph = graph.union(a_graph, a_explore)
-            print('seeds:', len(seeds), 'target nodes:', len(t_graph), 'auxiliary nodes:', len(a_graph))
-        leaves = new_leaves - seeds
-        seeds = seeds | leaves
-    return DataSet(
-            target=t_graph, 
-            aux=a_graph, 
-            seeds=dict(seeds),
-            root=initial_seed[0])
+def n_hop_seed_explore(initial_dataset, expander, n):
+    result = initial_dataset
+    def expand(seed):
+        new_data = expander(seed)
+        result = union(result, new_data)
+        if quit_pred(result):
+            return None
+        else:
+            return new_data.seeds
+    for hop in islice(misc.hop_iter(result.seeds, expand), n):
+        continue
+    return result
 
-def breadth_first_seed_search(
-        initial_seed, t_walk, a_walk,
-        seed_pred, max_seeds, max_nodes, batch_size, conn):
-    search_queue = deque()
-    search_queue.append(initial_seed)
-    t_graph = graph.empty_graph()
-    a_graph = graph.empty_graph()
-    total_seeds = 0
-    def expand(node):
-        (t_seed, a_seed) = node
-        t_explore = graph.pull_n_nodes(batch_size, walk_edges(t_seed, t_walk, conn))
-        a_explore = graph.pull_n_nodes(batch_size, walk_edges(a_seed, a_walk, conn))
-        t_graph = graph.union(t_graph, t_explore)
-        a_graph = graph.union(a_graph, a_explore)
-        seeds = list(graph.seed(t_explore, a_explore, seed_pred))
-        total_seeds += len(seeds)
-        print('seeds:', total_seeds, 'target nodes:', len(t_graph), 'auxiliary nodes:', len(a_graph))
-        if total_seeds > max_seeds or len(t_graph) > max_nodes or len(a_graph) > max_nodes:
-            return []
-        return seeds
-    seeds = set(misc.breadth_first_walk(initial_seed, expand))
+def single_batch(initial_seed, scenario, batch_size):
+    (t_seed, a_seed) = initial_seed
+    t_graph = graph.pull_n_nodes(batch_size, walk_edges(t_seed, scenario.t_walk))
+    a_graph = graph.pull_n_nodes(batch_size, walk_edges(a_seed, scenario.a_walk))
+    seeds = set(graph.seed(t_graph, a_graph, scenario.seed_pred)) | {initial_seed}
     return DataSet(
-            target=t_graph, 
-            aux=a_graph, 
-            seeds=dict(seeds),
-            root=initial_seed[0])
+            target=t_graph,
+            aux=a_graph,
+            seeds=seeds,
+            root=t_seed)
+
+def simple_batch_seed_cluster(initial_seed, scenario, cluster_size, batch_size):
+    return breadth_first_seed_explore(
+            initial_dataset=singleton(initial_seed),
+            expander=lambda seed: single_batch(initial_seed, scenario, batch_size),
+            quit_pred=lambda dataset: len(dataset.seeds) > cluster_size)
+
+def hop_clustered_seed_search(initial_seed, scenario, cluster_size, batch_sizes):
+    starting_cluster = simple_batch_seed_cluster(
+            initial_seed, scenario, cluster_size, batch_sizes[0])
+    return n_hop_seed_explore(
+            initial_dataset=starting_cluster,
+            expander=lambda seed: single_batch(initial_seed, scenario, batch_size),
+            n=len(batch_sizes))
 
 def mash_dataset(dataset):
     return graph.zip_with(
