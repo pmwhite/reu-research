@@ -155,11 +155,12 @@ def user_contributed_repos(user, conn):
             rateLimit { remaining resetAt }
         }'''
     req = graphql_request(isUserQuery, conn).json()
-    if req.get('data', None): 
+    if '__typename' not in req['data']['repositoryOwner']:
+        print('user must have quit github')
         print(req)
         print(user)
         print(isUserQuery)
-    if req['data']['repositoryOwner']['__typename'] == 'User':
+    elif req['data']['repositoryOwner']['__typename'] == 'User':
         baseQuery = '''
             query { 
                 rateLimit { remaining resetAt cost }

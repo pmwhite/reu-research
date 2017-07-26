@@ -20,7 +20,6 @@ def stubborn(f):
         except Exception as e:
            print(e)
 
-
 def main1():
     with sqlite3.connect('data/data.db') as conn:
         username = 'abidibo'
@@ -134,70 +133,5 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
                 break
             except Exception as e:
                 print(e)
-
-def argparser():
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest='command_name')
-
-    list_parser = subparsers.add_parser('list')
-    list_parser.add_argument('-a', '--after', type=str, default=None)
-    list_parser.add_argument('-n', '--amount', type=int, default=20)
-    list_parsers = list_parser.add_subparsers(dest='list_type')
-    list_parsers.add_parser('matches')
-    list_parsers.add_parser('unique')
-    list_active_parser = list_parsers.add_parser('active')
-    list_active_parser.add_argument('--s_limit', type=int, default=20)
-    list_active_parser.add_argument('--t_limit', type=int, default=20)
-    list_active_parser.add_argument('--g_limit', type=int, default=8)
-
-    check_user_parser = subparsers.add_parser('check_user')
-    check_user_parser.add_argument('username')
-
-    graph_parser = subparsers.add_parser('graph')
-    graph_parser.add_argument('username')
-    graph_parser.add_argument('out_dir')
-    graph_parser.add_argument('--github', nargs='?', const=True, default=False)
-    graph_parser.add_argument('--twitter', nargs='?', const=True, default=False)
-    graph_parser.add_argument('--stack', nargs='?', const=True, default=False)
-    graph_parser.add_argument('-n', '--nodes', type=int, default=6000)
-
-    deanon_parser = subparsers.add_parser('pack_attack')
-    deanon_parser.add_argument('username')
-    deanon_parser.add_argument('out_dir')
-    deanon_parser.add_argument('--github', nargs='?', const=True, default=False)
-    deanon_parser.add_argument('--stack', nargs='?', const=True, default=False)
-    deanon_parser.add_argument('-n', '--nodes', type=int, default=10000)
-    deanon_parser.add_argument('-s', '--seeds', type=int, default=20)
-    deanon_parser.add_argument('-b', '--batch', type=int, default=500)
-
-    parsed = parser.parse_args()
-    print(parsed)
-    conn = sqlite3.connect('data/data.db')
-    if parsed.command_name == 'list':
-        if parsed.list_type == 'matches':
-            list_matches(conn, after=parsed.after, amount=parsed.amount)
-        elif parsed.list_type == 'unique':
-            list_unique(conn, after=parsed.after, amount=parsed.amount)
-        elif parsed.list_type == 'active':
-            list_active(conn,
-                    after=parsed.after,
-                    s_limit=parsed.s_limit,
-                    t_limit=parsed.t_limit,
-                    g_limit=parsed.g_limit,
-                    amount=parsed.amount)
-    elif parsed.command_name == 'check_user':
-        check_user(conn, parsed.username)
-    elif parsed.command_name == 'graph':
-        pull_username_graph(
-                conn, parsed.username, 
-                parsed.stack, parsed.twitter, parsed.github, 
-                parsed.nodes, parsed.out_dir)
-    elif parsed.command_name == 'pack_attack':
-        deanon_user(conn, 
-                username=parsed.username, 
-                seeds=parsed.seeds, 
-                nodes=parsed.nodes, 
-                batch=parsed.batch, 
-                out_dir=parsed.out_dir)
 
 main1()
