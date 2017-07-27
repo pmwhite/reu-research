@@ -1,3 +1,4 @@
+import sqlite3
 from itertools import groupby, islice
 from rest import grouper
 from network import degree
@@ -54,6 +55,27 @@ def active_unique_username_matches(conn, s_limit, t_limit, g_limit, after=None):
             if degree(g, github.user_walk, conn) >= g_limit:
                 if degree(t, twitter.user_walk, conn) >= t_limit:
                     yield (s, t, g)
+
+def tg_location_metric(attacker_data):
+    def metric(t, a):
+        if t.location is not None and a.location is not None:
+            return deanon.jaccard_string_index(t.location, a.location)
+        else:
+            return 0
+    return metric
+
+def tg_jaccard_location_metric(attacker_data):
+    j_metric = deanon.jaccard_metric(attacker_data)
+    l_metric = tg_location_metric(attacker_data)
+    return lambda t, a: j_metric(t, a) + l_metric(t, a)
+
+def tg_activity_metric(attacker_data):
+    conn = sqlite3.connect('data/data.db')
+    t_histograms = {t: twitter.activity_histogram(t, 12, conn) for t in attacker_data.t_nodes}
+    a_histograms = {a: github.activity_histogram(a, 12, conn) for a in attacker_data.a_nodes}
+    def metric(t, a):
+        return deanon.cosine_similarity(t_histograms[t], a_histograms[a])
+    return metric
 
 def tg_is_seed(t_user, g_user):
     return (g_user.login == t_user.screen_name or

@@ -1,6 +1,7 @@
 import hashlib
 import pickle
 from collections import deque
+from datetime import datetime, time
 
 def progress(goal, current):
     c = int(current / goal * 100)
@@ -52,3 +53,15 @@ def hop_iter_from(roots, expand):
 
 def hop_iter(root, expand):
     return hop_iter_from({root}, expand)
+
+def day_seconds(dt):
+    day_start = datetime.combine(dt.date(), time(0))
+    return (dt - day_start).seconds
+
+def activity_histogram(dts, num_blocks, conn):
+    block_counts = {i: 0 for i in range(num_blocks)}
+    seconds_in_a_day = 24 * 60 * 60
+    block_length = seconds_in_a_day / num_blocks
+    for dt in dts:
+        block_counts[int(day_seconds(dt) / block_length - 0.5)] += 1
+    return [block_counts[i] for i in range(num_blocks)]

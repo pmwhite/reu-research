@@ -26,7 +26,10 @@ def main1():
         g_user = github.user_fetch_login(username, conn)
         t_user = twitter.user_fetch_screen_name(username, conn)
         dset = dataset.simple_batch_seed_cluster((t_user, g_user), common.tg_scenario(conn), 10, 10000)
-        write_gexf(dset.target, twitter.user_gexf).write('funfun/abidibo_main1')
+        write_gexf(dset.target, twitter.user_gexf).write('funfun/abidibo_main1.gexf')
+        with open('funfun/abidibo_main1.pickle', 'wb') as f:
+            pickle.dump(dset, f)
+
 
 def run_stuff(conn):
     while True:

@@ -1,10 +1,12 @@
 from network import Walk
+from itertools import chain, islice
 from visualization import GexfWritable, CsvWritable
 from rest import clean_str_key
 from datetime import datetime
 from collections import namedtuple
 import keys
 import rest
+import misc
 
 def graphql_request(query, conn):
     def make_request():
@@ -146,7 +148,7 @@ def repo_contributors(repo, conn):
     for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers'], conn):
         yield user_from_json(item)
 
-def user_contributed_repos(user, conn):
+def user_is_user(user, conn):
     isUserQuery = '''
         query {
             repositoryOwner(login: "''' + user.login + '''") {
@@ -155,12 +157,11 @@ def user_contributed_repos(user, conn):
             rateLimit { remaining resetAt }
         }'''
     req = graphql_request(isUserQuery, conn).json()
-    if '__typename' not in req['data']['repositoryOwner']:
-        print('user must have quit github')
-        print(req)
-        print(user)
-        print(isUserQuery)
-    elif req['data']['repositoryOwner']['__typename'] == 'User':
+    return ('__typename' in req['data']['repositoryOwner'] and
+            req['data']['repositoryOwner']['__typename'] == 'User')
+
+def user_contributed_repos(user, conn):
+    if user_is_user(user, conn):
         baseQuery = '''
             query { 
                 rateLimit { remaining resetAt cost }
@@ -182,6 +183,49 @@ def user_contributed_repos(user, conn):
                 paginate_gql_connection(baseQuery, ['user', 'contributedRepositories'], conn))
     else:
         return []
+
+def parse_date(date_str):
+    return datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%SZ')
+
+def user_pull_request_instants(user, conn):
+    if user_is_user(user, conn):
+        baseQuery = '''
+            query {
+                rateLimit { remaining resetAt cost }
+                user(login: "''' + user.login + '''") {
+                    pullRequests(first: 100, %s) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            createdAt
+                        }
+                    }
+                }
+            }'''
+        for pullRequest in paginate_gql_connection(baseQuery, ['user', 'pullRequests'], conn):
+            yield parse_date(pullRequest['createdAt'])
+
+def user_issue_instants(user, conn):
+    if user_is_user(user, conn):
+        baseQuery = '''
+            query {
+                rateLimit { remaining resetAt cost }
+                user(login: "''' + user.login + '''") {
+                    issues(first: 100, %s) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            createdAt
+                        }
+                    }
+                }
+            }'''
+        for issue in paginate_gql_connection(baseQuery, ['user', 'issues'], conn):
+            yield parse_date(issue['createdAt'])
+
+def activity_histogram(user, num_blocks, conn):
+    instants = chain(
+            islice(user_issue_instants(user, conn), 200),
+            islice(user_pull_request_instants(user, conn), 200))
+    return misc.activity_histogram(instants, num_blocks, conn)
 
 user_attribute_schema = {
         'id': 'string', 

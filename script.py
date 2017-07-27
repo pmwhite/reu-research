@@ -1,4 +1,5 @@
 import deanon
+import common
 import experiment
 import pickle
 import matplotlib
@@ -62,7 +63,7 @@ def main3():
         total_recall = 0
         iterations = 100
         def deanonymizer(attacker_data):
-            return deanon.pairwise_metric_greedy(attacker_data, deanon.jaccard_location_metric, 1.01)
+            return deanon.pairwise_metric_greedy(attacker_data, common.tg_jaccard_location_metric, 1.01)
         for _ in range(iterations):
             exper = experiment.concentrated_random_partition(data, 100, cluster_size / 100)
             (precision, recall) = experiment.analyze(exper, deanonymizer)
@@ -87,7 +88,7 @@ def main4():
     for i in range(1):
         print(i)
         exper = experiment.concentrated_random_partition(data, 100, 0.10)
-        (p_series, n_series) = experiment.analyze_metric(exper, deanon.jaccard_metric, deanon.location_metric)
+        (p_series, n_series) = experiment.analyze_metric(exper, deanon.jaccard_metric, common.tg_location_metric)
         p_unzipped = list(zip(*p_series))
         n_unzipped = list(zip(*n_series))
         p_xs.extend(p_unzipped[0])
@@ -99,4 +100,74 @@ def main4():
     plt.scatter(n_xs, n_ys, color='black', s=3)
     plt.scatter(p_xs, p_ys, color='red', s=10)
 
-main3()
+def main5():
+    data = pickle.load(open('./funfun/3_hop_cbmeeks_attack.pickle', 'rb'))
+    p_xs = []
+    p_ys = []
+    n_xs = []
+    n_ys = []
+    for i in range(5):
+        print(i)
+        exper = experiment.concentrated_random_partition(data, 100, 0.90)
+        (p_series, n_series) = experiment.analyze_metrics(exper, common.tg_location_metric, deanon.shared_fraction_max_metric)
+        p_unzipped = list(zip(*p_series))
+        n_unzipped = list(zip(*n_series))
+        print(len(p_unzipped))
+        print(len(n_unzipped))
+        p_xs.extend(p_unzipped[0])
+        p_ys.extend(p_unzipped[1])
+        n_xs.extend(n_unzipped[0])
+        n_ys.extend(n_unzipped[1])
+    plt.scatter(n_xs, n_ys, color='black', s=3)
+    plt.scatter(p_xs, p_ys, color='red', s=10)
+
+def main6():
+    data = pickle.load(open('./funfun/3_hop_cbmeeks_attack.pickle', 'rb'))
+    precision_points = []
+    recall_points = []
+    f_measure_points = []
+    x_stops = list(range(1, 100, 5))
+    for cluster_size in x_stops:
+        print(cluster_size)
+        total_precision = 0
+        total_recall = 0
+        iterations = 10
+        def deanonymizer(attacker_data):
+            pred1 = deanon.pairwise_metric_conservative(attacker_data, common.tg_location_metric, 0.99)
+            pred2 = deanon.pairwise_metric_simple_threshold(attacker_data, deanon.shared_fraction_max_metric, -1)
+            return set(pred1).intersection(pred2)
+        for _ in range(iterations):
+            exper = experiment.concentrated_random_partition(data, 100, cluster_size / 100)
+            (precision, recall) = experiment.analyze(exper, deanonymizer)
+            total_precision += precision
+            total_recall += recall
+        ave_precision = total_precision / iterations
+        ave_recall = total_recall / iterations
+        precision_points.append(ave_precision)
+        recall_points.append(ave_recall)
+    plt.ylim([0,1])
+    plt.xlabel('Percentage users known')
+    plt.plot(x_stops, precision_points, 'b', label='precision')
+    plt.plot(x_stops, recall_points, 'r', label='recall')
+    plt.legend()
+
+def main7():
+    data = pickle.load(open('./funfun/3_hop_cbmeeks_attack.pickle', 'rb'))
+    p_xs = []
+    p_ys = []
+    n_xs = []
+    n_ys = []
+    for i in range(5):
+        print(i)
+        exper = experiment.concentrated_random_partition(data, 100, 0.30)
+        (p_series, n_series) = experiment.analyze_rows(exper, deanon.shared_fraction_max_metric)
+        p_unzipped = list(zip(*p_series))
+        n_unzipped = list(zip(*n_series))
+        p_xs.extend(p_unzipped[0])
+        p_ys.extend(p_unzipped[1])
+        n_xs.extend(n_unzipped[0])
+        n_ys.extend(n_unzipped[1])
+    plt.scatter(n_xs, n_ys, color='black', s=3)
+    plt.scatter(p_xs, p_ys, color='red', s=10)
+
+main5()

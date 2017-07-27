@@ -12,15 +12,16 @@ def union(dataset1, dataset2):
     return DataSet(
             target=graph.union(dataset1.target, dataset2.target),
             aux=graph.union(dataset1.aux, dataset2.aux),
-            seeds=set.union(dataset1.seeds, dataset2.seeds),
+            seeds={**dataset1.seeds, **dataset2.seeds},
             root=dataset1.root)
 
 def singleton(seed):
+    (t, a) = seed
     return DataSet(
-            target=graph.singleton(seed[0]),
-            aux=graph.singleton(seed[1]),
-            seeds={seed},
-            root=seed[0])
+            target=graph.singleton(t),
+            aux=graph.singleton(a),
+            seeds={t: a},
+            root=t)
 
 def breadth_first_seed_explore(initial_dataset, expander, quit_pred):
     result = initial_dataset
@@ -53,7 +54,7 @@ def single_batch(initial_seed, scenario, batch_size):
     (t_seed, a_seed) = initial_seed
     t_graph = graph.pull_n_nodes(batch_size, walk_edges(t_seed, scenario.t_walk))
     a_graph = graph.pull_n_nodes(batch_size, walk_edges(a_seed, scenario.a_walk))
-    seeds = set(graph.seed(t_graph, a_graph, scenario.seed_pred)) | {initial_seed}
+    seeds = {t_seed: a_seed, **dict(graph.seed(t_graph, a_graph, scenario.seed_pred))}
     return DataSet(
             target=t_graph,
             aux=a_graph,

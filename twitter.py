@@ -1,3 +1,4 @@
+import misc
 import requests
 import keys
 import rest
@@ -7,6 +8,7 @@ from datetime import datetime
 from rest import grouper, clean_str_key
 from collections import namedtuple
 from requests_oauthlib import OAuth1, OAuth2
+from itertools import islice
 
 _token_response = None
 def token_response():
@@ -143,6 +145,10 @@ def user_tweets(user, conn):
     def extract_items(response):
         return (tweet_from_json(data) for data in response.json())
     return rest.paginate_api(make_request, extract_cursor, extract_items)
+
+def activity_histogram(user, num_blocks, conn):
+    instants = (tweet.created_at for tweet in islice(user_tweets(user, conn), 100))
+    return misc.activity_histogram(instants, num_blocks, conn)
 
 def search_users(query):
     def make_request(cursor):

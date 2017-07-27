@@ -18,16 +18,16 @@ def cluster_partition(dataset, cluster_size):
         expanded = set(expand(t_known_seed))
         t_unknown_seeds.update(expanded - t_known_seeds)
     known_seeds = {t: dataset.seeds[t] for t in t_known_seeds}
-    t_nodes = list(t_unknown_seeds)
-    a_nodes = [dataset.seeds[t] for t in t_nodes]
+    t_unknown = list(t_unknown_seeds)
+    a_unknown = [dataset.seeds[t] for t in t_unknown]
     return Experiment(
             attacker_data=AttackerData(
                 target=dataset.target,
                 aux=dataset.aux,
                 known_seeds=known_seeds,
-                t_nodes=t_nodes,
-                a_nodes=a_nodes),
-            solutions={(t, a, dataset.seeds[t] == a) for t, a in product(t_nodes, a_nodes)})
+                t_nodes=t_unknown,
+                a_nodes=a_unknown),
+            solutions={(t, dataset.seeds[t]) for t in t_unknown})
 
 def random_partition(dataset, known_percentage):
     num_known = int(known_percentage * len(dataset.seeds))
@@ -42,7 +42,7 @@ def random_partition(dataset, known_percentage):
                 known_seeds={t: dataset.seeds[t] for t in t_known},
                 t_nodes=t_unknown,
                 a_nodes=a_unknown),
-            solutions={(t, a, dataset.seeds[t] == a) for t, a in product(t_unknown, a_unknown)})
+            solutions={(t, dataset.seeds[t]) for t in t_unknown})
 
 def random_multicluster_partition(dataset, cluster_size, clusters):
     def expand(node):
@@ -55,16 +55,16 @@ def random_multicluster_partition(dataset, cluster_size, clusters):
         expanded = set(expand(t_known_seed))
         t_unknown_seeds.update(expanded - t_known_seeds)
     known_seeds = {t: dataset.seeds[t] for t in t_known_seeds}
-    t_nodes = list(t_unknown_seeds)
-    a_nodes = [dataset.seeds[t] for t in t_nodes]
+    t_unknown = list(t_unknown_seeds)
+    a_unknown = [dataset.seeds[t] for t in t_unknown]
     return Experiment(
             attacker_data=AttackerData(
                 target=dataset.target,
                 aux=dataset.aux,
                 known_seeds=known_seeds,
-                t_nodes=t_nodes,
-                a_nodes=a_nodes),
-            solutions={(t, a, dataset.seeds[t] == a) for t, a in product(t_nodes, a_nodes)})
+                t_nodes=t_unknown,
+                a_nodes=a_unknown),
+            solutions={(t, dataset.seeds[t]) for t in t_unknown})
 
 def concentrated_random_partition(dataset, cluster_size, known_percentage):
     def expand(node):
@@ -81,18 +81,14 @@ def concentrated_random_partition(dataset, cluster_size, known_percentage):
                 known_seeds={t: dataset.seeds[t] for t in t_known},
                 t_nodes=t_unknown,
                 a_nodes=a_unknown),
-            solutions={(t, a, dataset.seeds[t] == a) for t, a in product(t_unknown, a_unknown)})
+            solutions={(t, dataset.seeds[t]) for t in t_unknown})
 
 def evaluate_predictions(predictions, solutions):
-    predictions = set(predictions)
-    predicted_positive = {(t, a) for t, a, truth in predictions if truth}
-    predicted_negative = {(t, a) for t, a, truth in predictions if not truth}
-    actual_positive = {(t, a) for t, a, truth in solutions if truth}
-    actual_negative = {(t, a) for t, a, truth in solutions if not truth}
-    fp = len(predicted_positive & actual_negative)
-    tp = len(predicted_positive & actual_positive)
-    tn = len(predicted_negative & actual_negative)
-    fn = len(predicted_negative & actual_positive)
+    pred = set(predictions)
+    sol = set(solutions)
+    fp = len(pred - sol)
+    tp = len(pred & sol)
+    fn = len(sol - pred)
     print('correct:', tp, ', incorrect:', fp)
     if tp + fp == 0: 
         precision = 1
@@ -107,7 +103,7 @@ def evaluate_predictions(predictions, solutions):
 def analyze(experiment, predictor):
     return evaluate_predictions(predictor(experiment.attacker_data), experiment.solutions)
 
-def analyze_metric(experiment, metric1, metric2):
+def analyze_metrics(experiment, metric1, metric2):
     ad = experiment.attacker_data
     p_series = []
     n_series = []
@@ -115,8 +111,22 @@ def analyze_metric(experiment, metric1, metric2):
     m2 = metric2(ad)
     for t, a in product(ad.t_nodes, ad.a_nodes):
         item = (m1(t, a), m2(t, a))
-        if (t, a, True) in experiment.solutions:
+        if (t, a) in experiment.solutions:
             p_series.append(item)
         else:
             n_series.append(item)
+    return (p_series, n_series)
+
+def analyze_rows(experiment, metric):
+    ad = experiment.attacker_data
+    p_series = []
+    n_series = []
+    m = metric(ad)
+    for i, t in enumerate(ad.t_nodes):
+        for a in ad.a_nodes:
+            item = (m(t, a), i)
+            if (t, a) in experiment.solutions:
+                p_series.append(item)
+            else:
+                n_series.append(item)
     return (p_series, n_series)
