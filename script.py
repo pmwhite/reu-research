@@ -56,14 +56,14 @@ def main3():
     precision_points = []
     recall_points = []
     f_measure_points = []
-    x_stops = list(range(1, 100))
+    x_stops = list(range(1, 100, 5))
     for cluster_size in x_stops:
         print(cluster_size)
         total_precision = 0
         total_recall = 0
-        iterations = 100
+        iterations = 1
         def deanonymizer(attacker_data):
-            return deanon.pairwise_metric_greedy(attacker_data, common.tg_jaccard_location_metric, 1.01)
+            return deanon.pairwise_metric_greedy(attacker_data, common.tg_activity_metric, 0.90)
         for _ in range(iterations):
             exper = experiment.concentrated_random_partition(data, 100, cluster_size / 100)
             (precision, recall) = experiment.analyze(exper, deanonymizer)
@@ -75,8 +75,8 @@ def main3():
         recall_points.append(ave_recall)
     plt.ylim([0,1])
     plt.xlabel('Percentage users known')
-    plt.plot(x_stops, precision_points, 'b', label='precision')
-    plt.plot(x_stops, recall_points, 'r', label='recall')
+    plt.plot(x_stops, precision_points, '-', color='black', label='precision')
+    plt.plot(x_stops, recall_points, '--', color='black', label='recall')
     plt.legend()
 
 def main4():
@@ -109,7 +109,7 @@ def main5():
     for i in range(5):
         print(i)
         exper = experiment.concentrated_random_partition(data, 100, 0.90)
-        (p_series, n_series) = experiment.analyze_metrics(exper, common.tg_location_metric, deanon.shared_fraction_max_metric)
+        (p_series, n_series) = experiment.analyze_metrics(exper, deanon.cosine_jaccard_metric, deanon.jaccard_metric)
         p_unzipped = list(zip(*p_series))
         n_unzipped = list(zip(*n_series))
         print(len(p_unzipped))
@@ -131,13 +131,13 @@ def main6():
         print(cluster_size)
         total_precision = 0
         total_recall = 0
-        iterations = 10
+        iterations = 50
         def deanonymizer(attacker_data):
             pred1 = deanon.pairwise_metric_conservative(attacker_data, common.tg_location_metric, 0.99)
-            pred2 = deanon.pairwise_metric_simple_threshold(attacker_data, deanon.shared_fraction_max_metric, -1)
+            pred2 = deanon.pairwise_metric_simple_threshold(attacker_data, deanon.cosine_jaccard_metric, 0.1)
             return set(pred1).intersection(pred2)
         for _ in range(iterations):
-            exper = experiment.concentrated_random_partition(data, 100, cluster_size / 100)
+            exper = experiment.concentrated_random_partition(data, 50, cluster_size / 100)
             (precision, recall) = experiment.analyze(exper, deanonymizer)
             total_precision += precision
             total_recall += recall
@@ -157,17 +157,46 @@ def main7():
     p_ys = []
     n_xs = []
     n_ys = []
-    for i in range(5):
+    for i in range(6):
         print(i)
-        exper = experiment.concentrated_random_partition(data, 100, 0.30)
-        (p_series, n_series) = experiment.analyze_rows(exper, deanon.shared_fraction_max_metric)
+        exper = experiment.concentrated_random_partition(data, 30, 0.30)
+        (p_series, n_series) = experiment.analyze_rows(exper, deanon.jaccard_metric)
         p_unzipped = list(zip(*p_series))
         n_unzipped = list(zip(*n_series))
         p_xs.extend(p_unzipped[0])
         p_ys.extend(p_unzipped[1])
         n_xs.extend(n_unzipped[0])
         n_ys.extend(n_unzipped[1])
-    plt.scatter(n_xs, n_ys, color='black', s=3)
-    plt.scatter(p_xs, p_ys, color='red', s=10)
+    plt.scatter(n_ys, n_xs, marker='o', facecolors='none', edgecolors='black', s=10)
+    plt.scatter(p_ys, p_xs, marker='o', color='black', s=10)
 
-main5()
+def main8():
+    data = pickle.load(open('./funfun/3_hop_cbmeeks_attack.pickle', 'rb'))
+    precision_points = []
+    recall_points = []
+    f_measure_points = []
+    x_stops = list(range(3, 100))
+    for cluster_size in x_stops:
+        print(cluster_size)
+        total_precision = 0
+        total_recall = 0
+        iterations =1 
+        def deanonymizer(attacker_data):
+            pred1 = deanon.metric_eccentricity_greedy(attacker_data, common.tg_activity_metric, 0.5)
+            return set(pred1)
+        for _ in range(iterations):
+            exper = experiment.concentrated_random_partition(data, cluster_size, 0)
+            (precision, recall) = experiment.analyze(exper, deanonymizer)
+            total_precision += precision
+            total_recall += recall
+        ave_precision = total_precision / iterations
+        ave_recall = total_recall / iterations
+        precision_points.append(ave_precision)
+        recall_points.append(ave_recall)
+    plt.ylim([0,1])
+    plt.xlabel('Percentage users known')
+    plt.plot(x_stops, precision_points, 'b', label='precision')
+    plt.plot(x_stops, recall_points, 'r', label='recall')
+    plt.legend()
+
+main3()

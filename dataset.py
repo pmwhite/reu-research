@@ -41,12 +41,10 @@ def n_hop_seed_explore(initial_dataset, expander, n):
     result = initial_dataset
     def expand(seed):
         new_data = expander(seed)
+        nonlocal result
         result = union(result, new_data)
-        if quit_pred(result):
-            return None
-        else:
-            return new_data.seeds
-    for hop in islice(misc.hop_iter(result.seeds, expand), n):
+        return new_data.seeds
+    for hop in islice(misc.hop_iter(list(result.seeds), expand), n):
         continue
     return result
 
@@ -64,16 +62,18 @@ def single_batch(initial_seed, scenario, batch_size):
 def simple_batch_seed_cluster(initial_seed, scenario, cluster_size, batch_size):
     return breadth_first_seed_explore(
             initial_dataset=singleton(initial_seed),
-            expander=lambda seed: single_batch(initial_seed, scenario, batch_size),
+            expander=lambda seed: single_batch(seed, scenario, batch_size),
             quit_pred=lambda dataset: len(dataset.seeds) > cluster_size)
 
 def hop_clustered_seed_search(initial_seed, scenario, cluster_size, batch_sizes):
     starting_cluster = simple_batch_seed_cluster(
             initial_seed, scenario, cluster_size, batch_sizes[0])
-    return n_hop_seed_explore(
+    result = n_hop_seed_explore(
             initial_dataset=starting_cluster,
-            expander=lambda seed: single_batch(initial_seed, scenario, batch_size),
+            expander=lambda seed: single_batch(seed, scenario, batch_sizes[1]),
             n=len(batch_sizes))
+    print(len(result.seeds))
+    return result
 
 def mash_dataset(dataset):
     return graph.zip_with(

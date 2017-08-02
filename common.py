@@ -71,8 +71,8 @@ def tg_jaccard_location_metric(attacker_data):
 
 def tg_activity_metric(attacker_data):
     conn = sqlite3.connect('data/data.db')
-    t_histograms = {t: twitter.activity_histogram(t, 12, conn) for t in attacker_data.t_nodes}
-    a_histograms = {a: github.activity_histogram(a, 12, conn) for a in attacker_data.a_nodes}
+    t_histograms = {t: twitter.activity_histogram(t, 5, conn) for t in attacker_data.t_nodes}
+    a_histograms = {a: github.activity_histogram(a, 5, conn) for a in attacker_data.a_nodes}
     def metric(t, a):
         return deanon.cosine_similarity(t_histograms[t], a_histograms[a])
     return metric

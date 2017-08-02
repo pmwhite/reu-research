@@ -52,7 +52,7 @@ def hop_iter_from(roots, expand):
         found = found | new_leaves
 
 def hop_iter(root, expand):
-    return hop_iter_from({root}, expand)
+    return hop_iter_from(set(root), expand)
 
 def day_seconds(dt):
     day_start = datetime.combine(dt.date(), time(0))

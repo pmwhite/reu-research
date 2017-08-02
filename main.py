@@ -25,11 +25,21 @@ def main1():
         username = 'abidibo'
         g_user = github.user_fetch_login(username, conn)
         t_user = twitter.user_fetch_screen_name(username, conn)
-        dset = dataset.simple_batch_seed_cluster((t_user, g_user), common.tg_scenario(conn), 10, 10000)
+        dset = dataset.hop_clustered_seed_search((t_user, g_user), common.tg_scenario(conn), 500, [1000, 500])
         write_gexf(dset.target, twitter.user_gexf).write('funfun/abidibo_main1.gexf')
         with open('funfun/abidibo_main1.pickle', 'wb') as f:
             pickle.dump(dset, f)
 
+def main2():
+    with sqlite3.connect('data/data.db') as conn:
+        username = 'abidibo'
+        g_user = github.user_fetch_login(username, conn)
+        t_user = twitter.user_fetch_screen_name(username, conn)
+        dset = dataset.single_batch((t_user, g_user), common.tg_scenario(conn), 200)
+        write_gexf(dset.target, twitter.user_gexf).write('funfun/abidibo_twitter_main2.gexf')
+        write_gexf(dset.aux, github.user_gexf).write('funfun/abidibo_github_main2.gexf')
+        mashed = dataset.mash_dataset(dset)
+        write_gexf(mashed, common.tg_gexf).write('funfun/abidibo_github_main2.gexf')
 
 def run_stuff(conn):
     while True:
@@ -137,4 +147,4 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
             except Exception as e:
                 print(e)
 
-main1()
+main2()

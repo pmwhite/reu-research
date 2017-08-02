@@ -10,12 +10,14 @@ AttackerData = namedtuple('AttackerData', 'target aux known_seeds t_nodes a_node
 def jaccard_index(s1, s2):
     return len(s1 & s2) / len(s1 | s2)
 
+def cosine_jaccard_index(s1, s2):
+    return len(s1 & s2) / sqrt(len(s1 | s2))
+
 def shared_fraction_max(s1, s2):
     return len(s1 & s2) / max(len(s1), len(s2))
 
 def shared_fraction_min(s1, s2):
     return len(s1 & s2) / min(len(s1), len(s2))
-
 
 def cosine_similarity(seq1, seq2):
     l1 = list(seq1)
@@ -111,6 +113,17 @@ def jaccard_metric(attacker_data):
         for t in attacker_data.t_nodes}
     a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
     return lambda t, a: jaccard_index(converted_t_sets[t], a_sets[a])
+
+def cosine_jaccard_metric(attacker_data):
+    def surrounding_nodes(node, g):
+        return g[node]
+        return set(islice(graph.surrounding_nodes(g, node), 50))
+    converted_t_sets = {
+        t: {attacker_data.known_seeds.get(x, x) 
+            for x in surrounding_nodes(t, attacker_data.target)}
+        for t in attacker_data.t_nodes}
+    a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
+    return lambda t, a: cosine_jaccard_index(converted_t_sets[t], a_sets[a])
 
 def shared_fraction_max_metric(attacker_data):
     def surrounding_nodes(node, g):
