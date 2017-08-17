@@ -1,3 +1,6 @@
+"""The module for all StackOverflow related code. The acquisition from
+stackoverflow is done by mining a downloaded data dump, so there is no issue
+with rate limits."""
 import xml.etree.ElementTree as ET
 import re
 from network import Walk
@@ -7,6 +10,8 @@ from collections import namedtuple
 from datetime import datetime
 
 def xml_children(filename):
+"""Iterate through all children in a 1-deep xml file, which is how all
+StackOverflow files are structured."""
     for event, child in ET.iterparse(filename):
         if event == 'end' and child.tag == 'row':
             yield child.attrib
@@ -177,6 +182,7 @@ def user_comments(user, conn):
         (user.id,))]
 
 def user_answerers(user, conn):
+"Fetches all users which have answered a question asked by the given user."
     rows = conn.execute('''
         SELECT answerers.* FROM StackUsers su
         JOIN StackPosts sp ON su.Id = sp.OwnerUserId
@@ -186,6 +192,7 @@ def user_answerers(user, conn):
     return [User(*row) for row in rows]
 
 def user_questioners(user, conn):
+"Fetches all users which have asked a question answered by the given user."
     rows = conn.execute('''
         SELECT questioners.* FROM StackUsers su
         JOIN StackPosts sp ON su.Id = sp.OwnerUserId

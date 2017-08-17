@@ -1,3 +1,5 @@
+"Scripts for running analysis on datasets. These can be used as examples, but
+some of them may be broken through not being run in a while."
 import deanon
 import common
 import experiment
@@ -199,4 +201,5 @@ def main8():
     plt.plot(x_stops, recall_points, 'r', label='recall')
     plt.legend()
 
+# Decide which main program we want to run.
 main3()

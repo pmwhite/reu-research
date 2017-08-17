@@ -1,34 +1,19 @@
-# Developer De-anonymization
+# Social Network De-anonymization Framework
 
-This repository contains code and documentation for my REU Research project at
-Wright State University. The goal of this project is *de-anonymizing and
-unifying GitHub, StackOverflow, and Twitter users*. Given a user on one of
-these three networks, we attempt to identify the same user's accounts on the
-other two networks.
+This repository contains code and scripts that came out of my REU internship
+project at Wright State University. The focus of the project was on
+de-anonymizing Twitter and Github datasets, but this repository also some
+scripts for working with StackOverflow because SO was originally part of the
+project's scope.
 
-Social sites often provide data to advertising companies to allow them to serve
-more relevant ads to users. To protect their user's privacy concerns, these
-sites will anonymize the data so that individual users cannot be identified.
-Ideally, advertisers should be dealing only with relevant information about
-their target audience, and not the individuals themselves.
+## Coding style
 
-De-anonymization is the process of using background information, such as
-network structure or a small number of "seed" users, to extract the identity of
-individuals from an anonymized set of data.
-
-This project deals specifically with three very common networks for software
-developers and programmers. While previous research on de-anonymization has
-used Twitter as a dataset, StackOverflow and GitHub are currently unexplored. I
-expect the probability of getting good results is increased significantly
-because of the large user overlap between the sites.
-
-The point of the sites that this project focuses on is that everything on them
-is publicly and easily accessible. Very little attempt is made to hide a users
-activity on these sites. Discovering usernames of individuals is no hard feat;
-thus, categorizing the goal of this project as "de-anonymization" may be a
-stretch. Perhaps a more appropriate term would be "unification" of users. Note
-that we will not be using usernames or "identity information" to perform the
-de-anonymization except as a evalidation tool.
+I'm a strong believer in functional programming, so I tended to avoid classes
+in this code. Instead, you'll see a lot of `namedtuple`s used as data
+containers. Another oddity is that I've extracted common functionality into
+tuples of functions (similar to Haskell typeclasses, except you need to pass
+them explicitly as parameters). This may not be the best solution, but I
+decided not to fuss to much about it.
 
 ## Outside resources
 

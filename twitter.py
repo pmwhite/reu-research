@@ -1,3 +1,5 @@
+"""Important module for handling Twitter API requests. Rate limiting is handled
+automatically, and caching is used heavily to speed up the process."""
 import misc
 import requests
 import keys
@@ -12,6 +14,8 @@ from itertools import islice
 
 _token_response = None
 def token_response():
+"""Gets an OAuth token for making API requests. If the global variable has
+already been set, it will be returned without re-obtaining it."""
     global _token_response
     if _token_response is None:
         _token_response = requests.post(
@@ -20,9 +24,11 @@ def token_response():
     return _token_response
 
 def _app_auth():
+"Returns the application-only authentication object."
     return OAuth2(token=token_response())
 
 def _user_auth():
+"Returns user-specific authentication."
     return OAuth1(
             keys.TWITTER_CONSUMER_KEY,
             keys.TWITTER_CONSUMER_SECRET,
@@ -30,6 +36,9 @@ def _user_auth():
             keys.TWITTER_ACCESS_TOKEN_SECRET)
 
 def rated_request(path, params, conn, rate_family, auth=_app_auth()):
+"""Makes a twitter API requests while respecting rate limits. Since Twitter has
+a number of different rate limits for different types of requests, a
+rate_family parameter is used to separate one from the other."""
     def make_request():
         return rest.cached_get(
                 conn=conn,
@@ -48,6 +57,8 @@ def rated_request(path, params, conn, rate_family, auth=_app_auth()):
     return rest.rated_request(make_request, extract_rate_info, rate_family=rate_family)
 
 def paginate_api(path, page_property, params, conn, rate_family):
+"""Handles paging through a Twitter API request. The `page_property` is the
+path to the actual items in the returned object."""
     def make_request(cursor):
         p = params.copy()
         c = cursor
@@ -68,6 +79,7 @@ User = namedtuple('User', 'id screen_name name location url follower_count follo
 Tweet = namedtuple('Tweet', 'id user_id created_at hashtags')
 
 def user_from_json(data):
+"Converts a JSON object to a user object."
     return User(
             id=data['id'],
             screen_name=data['screen_name'].lower(),
@@ -78,6 +90,7 @@ def user_from_json(data):
             following_count=clean_str_key(data, 'friends_count'))
 
 def user_fetch_screen_names(screen_names, conn):
+"Gets a list of users (by username) from either the API or the database."
     result = {sn: None for sn in screen_names}
     for group in grouper(screen_names, 100):
         response = rated_request('users/lookup.json', {'screen_name' : ','.join(group)}, conn, 
@@ -89,9 +102,11 @@ def user_fetch_screen_names(screen_names, conn):
     return result
 
 def user_fetch_screen_name(screen_name, conn):
+"Gets a single user (by username) from either the API or the database."
     return user_fetch_screen_names([screen_name], conn)[screen_name]
 
 def user_fetch_ids(ids, conn):
+"Gets a list of users (by id) from either the API or the database."
     result = {user_id: None for user_id in ids}
     for group in grouper(ids, 100):
         response = rated_request('users/lookup.json', {'user_id' : ','.join(group)}, conn, 
@@ -103,6 +118,7 @@ def user_fetch_ids(ids, conn):
     return result
 
 def user_friends(user, conn):
+"Finds the users that a certain user is mutually following."
     params = {'screen_name' : user.screen_name,
             'stringify_ids': 'true'}
     follower_ids = set(paginate_api(
@@ -113,9 +129,11 @@ def user_friends(user, conn):
     return [user for user in user_fetch_ids(common_ids, conn).values() if user is not None]
 
 def parse_date(date_str):
+"Parse a Twitter date string."
     return datetime.strptime(date_str, '%a %b %d %H:%M:%S +0000 %Y')
 
 def tweet_from_json(data):
+"Convert a JSON object to a tweet object."
     return Tweet(
             id=data['id'],
             user_id=data['user']['id'],
@@ -123,6 +141,7 @@ def tweet_from_json(data):
             hashtags={obj['text'] for obj in data['entities']['hashtags']})
 
 def user_tweets(user, conn):
+"Gets all the available tweets made by a certain user."
     base_params = {
             'user_id': user.id, 
             'trim_user': True, 
@@ -147,10 +166,12 @@ def user_tweets(user, conn):
     return rest.paginate_api(make_request, extract_cursor, extract_items)
 
 def activity_histogram(user, num_blocks, conn):
+"Compiles an activity histogram based on the times a certain user has tweeted."
     instants = (tweet.created_at for tweet in islice(user_tweets(user, conn), 100))
     return misc.activity_histogram(instants, num_blocks, conn)
 
 def search_users(query):
+"Performs a search query against the API on users."
     def make_request(cursor):
         c = cursor
         if cursor is None:

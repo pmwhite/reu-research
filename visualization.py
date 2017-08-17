@@ -1,7 +1,6 @@
-# A module for saving graphs to gexf and csv files. It uses a 'typeclass' for
-# each of those two formats, so each graph item type should implement one of
-# those. Pass the typeclass to the function that writes the output.
-
+"""A module for saving graphs to gexf and csv files. It uses a 'typeclass' for
+each of those two formats, so each graph item type should implement one of
+those. Pass the typeclass to the function that writes the output."""
 from collections import namedtuple
 import graph
 import xml.etree.cElementTree as ET
@@ -10,6 +9,7 @@ GexfWritable = namedtuple('GexfWritable', 'schema serialize label')
 CsvWritable = namedtuple('CsvWritable', 'to_row from_row cols')
 
 def multi_gexf(schemas, type_legend):
+"""Takes a dict of schemes and merges them by prefixing each schema with the key in the dict. The type_legend allows specifying which type each key in the final dict is."""
     schema = {'node_type': 'string'}
     for t, (prefix, gexf)  in schemas:
         schema.update(misc.prefix_keys(gexf.schema, prefix))
@@ -21,6 +21,8 @@ def multi_gexf(schemas, type_legend):
         return prefix + gexf.label(node)
 
 def write_gexf(g, gexf):
+"""Badly-named: returns a gexf graph xml object, but does not write it to a
+file."""
     root = ET.Element('gexf', xmlns='http://www.gexf.net/1.2draft', version='1.2')
     g_tag = ET.Element('graph', mode='static', defaultedgetype='directed')
     nodes = ET.Element('nodes')
@@ -48,6 +50,8 @@ def write_gexf(g, gexf):
     return ET.ElementTree(root)
 
 def write_csv(g, csv, base_file, sep='|'):
+"""Writes two CSV files - one for nodes and one for edges. The files are named
+with a given prefix so that they can be associated with each other."""
     node_id_key = {}
     with open(base_file + '_nodes.csv', 'w') as f:
         f.write('node_id', sep.join(csv.cols) + '\n')
@@ -60,6 +64,9 @@ def write_csv(g, csv, base_file, sep='|'):
             f.write(node_id_key[f] + sep + node_id_key[t] + '\n')
 
 def read_csv(csv, base_file, sep='|'):
+"""Reads two CSV files - one for nodes and one for edges. Since `write_csv`
+associates files with a prefix, this function reads files together based on a
+certain prefix."""
     id_node_key = {}
     with open(base_file + '_nodes.csv', 'r') as f:
         cols = next(f)

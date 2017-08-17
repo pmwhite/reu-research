@@ -1,8 +1,10 @@
+"""A large file containing some one-off scripts. This file should mainly be
+used as an example page. Probably some of the functions are broken from updates
+to certain parts of the code."""
 from itertools import islice
 from network import walk_edges
 from visualization import write_gexf
 import os
-import argparse
 import sqlite3
 import pickle
 import twitter
@@ -12,7 +14,9 @@ import graph
 import deanon
 import dataset
 
+
 def stubborn(f):
+"Runs a function forever until it doesn't throw an exception."
     while True:
         try:
             f()
@@ -147,4 +151,5 @@ def deanon_user(conn, username, seeds, nodes, batch, out_dir):
             except Exception as e:
                 print(e)
 
+# this is where we decide which function to run.
 main2()

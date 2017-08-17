@@ -1,3 +1,6 @@
+"""A module for accessing the Github API in a controlled enough manner that one
+does not need to think about rate limits. All API calls are cached into a
+database."""
 from network import Walk
 from itertools import chain, islice
 from visualization import GexfWritable, CsvWritable
@@ -9,6 +12,7 @@ import rest
 import misc
 
 def graphql_request(query, conn):
+"Requests the Github GraphQL API with the given query."
     def make_request():
         return rest.cached_post(
                 rate_family='github_graphql',
@@ -26,6 +30,11 @@ def graphql_request(query, conn):
     return rest.rated_request(make_request, extract_rate_info, rate_family='github_graphql')
 
 def paginate_gql_connection(baseQuery, nodes_path, conn):
+"""Traverses a paged query using the specified query. The given query should
+have a single format specifier where the 'after' parameter should go on the
+paginated item. The cursor parameter will be interpolated into the string as
+needed. The nodes_path is the path to the object that will contain the
+items."""
     def make_request(cursor):
         cursor_str = ''
         if cursor is not None:
@@ -49,8 +58,8 @@ def paginate_gql_connection(baseQuery, nodes_path, conn):
 User = namedtuple('User', 'id login location email name website_url company')
 Repo = namedtuple('Repo', 'id owner_id owner_login name language homepage is_fork')
 
-# Dict -> User
 def user_from_json(data):
+"Turns a json object into a user object."
     return User(
             id=data['id'],
             login=data['login'],
@@ -60,8 +69,8 @@ def user_from_json(data):
             website_url=clean_str_key(data, 'websiteUrl'),
             company=clean_str_key(data, 'company'))
 
-# Dict -> Repo
 def repo_from_json(data):
+"Turns a json object into a repo object."
     if data['primaryLanguage'] is not None:
         language = data['primaryLanguage']['name']
     else:

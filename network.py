@@ -1,3 +1,5 @@
+"""A modules for specifying how social networks can be walked or iterated
+through."""
 from collections import namedtuple
 from itertools import chain
 import graph
@@ -5,6 +7,7 @@ import graph
 Walk = namedtuple('Walk', 'out_gen in_gen select_leaves')
 
 def walk_edges(init, walk):
+"Yields all the edges from a certain walk, starting from a specific node."
     nodes = {init}
     leaves = {init}
     while len(leaves) != 0:
@@ -20,7 +23,9 @@ def walk_edges(init, walk):
         nodes = nodes | leaves
 
 def connections(x, walk):
+"Gets a specific nodes 1-hop connections."
     return chain(walk.out_gen(x), walk.in_gen(x))
 
 def degree(x, walk):
+"Counts how many connections a node has."
     return len(list(connections(x, walk)))
