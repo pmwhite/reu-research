@@ -1,170 +1,195 @@
-import sqlite3
-import common
-import stack 
-import github
-import twitter
+"""This module contains functions for de-anonymizing AttackerData objects. It
+does not handle turning datasets into the objects; such a task is handled by
+the `experiment` module. In this module, there are a few functions that are
+categorized as 'metrics'. These functions take an `AttackerData` object, and
+return a function which takes two users and returns a number. The initial call
+is to allow the metric to cache any computation from the `AttackerData`
+object."""
+
 from itertools import islice, product
-from network import stack_walk, twitter_walk, github_walk, walk_edges
+from collections import namedtuple
 import graph
-from collections import deque
+import table
+from math import sqrt
+import numpy
 
-def levenshtein(s1, s2):
-    w = len(s1) + 1
-    h = len(s2) + 1
-    matrix = [[0 for y in range(h)] for x in range(w)]
-    for i in range(1, w): matrix[i][0] = i
-    for i in range(1, h): matrix[0][i] = i
-    for x in range(1, w):
-        for y in range(1, h):
-            subCost = 1
-            if s1[x-1] == s2[y-1]:
-                subCost = 0
-            matrix[x][y] = min(
-                    matrix[x-1][y] + 1,
-                    matrix[x][y-1] + 1,
-                    matrix[x-1][y-1] + subCost)
-    return matrix[w-1][h-1]
+AttackerData = namedtuple('AttackerData', 'target aux known_seeds t_nodes a_nodes')
 
-def lcs(s1, s2):
-    w = len(s1)
-    h = len(s2)
-    matrix = [[0 for y in range(h)] for x in range(w)]
-    z = 0
-    for x in range(w):
-        for y in range(h):
-            if s1[x] == s2[y]:
-                if x == 0 or y == 0:
-                    matrix[x][y] = 1
-                else:
-                    matrix[x][y] = matrix[x-1][y-1] + 1
-                z = max(z, matrix[x][y])
-            else:
-                matrix[x][y] = 0
-    return z
+def jaccard_index(s1, s2):
+"""Computes the Jaccard index for two sets, which is just the size of their
+intersection divided by the size of their union."""
+    return len(s1 & s2) / len(s1 | s2)
 
-def diag_product(it1, it2):
-    acc1 = []
-    acc2 = []
-    for index, (x1, x2) in enumerate(zip(it1, it2)):
-        acc1.append(x1)
-        acc2.append(x2)
-        for i in range(index + 1):
-            yield (acc1[i], acc2[index - i])
-        index += 1
+def cosine_jaccard_index(s1, s2):
+"""A rather unscientific set similarity index. Supposed to be similar to cosine
+similarity by removing the bias on larger sets."""
+    return len(s1 & s2) / sqrt(len(s1 | s2))
 
-def tg_pred(t_user, g_user):
-    if g_user.login == t_user.screen_name:
-        return True
-    elif g_user.name is not None and t_user.name is not None and ' ' in g_user.name and g_user.name == t_user.name:
-        return True
+def shared_fraction_max(s1, s2):
+"""The fraction of the larger set's elements that are shared between the two
+sets."""
+    return len(s1 & s2) / max(len(s1), len(s2))
+
+def shared_fraction_min(s1, s2):
+"""The fraction of the smaller set's elements that are shared between the two
+sets."""
+    return len(s1 & s2) / min(len(s1), len(s2))
+
+def cosine_similarity(seq1, seq2):
+"""The cosine similarity between two lists. It is very similar to the
+angle between the two lists if they are treated as vectors, but it ranges from 0 to 1."""
+    l1 = list(seq1)
+    l2 = list(seq2)
+    dot = lambda v1, v2: sum(a * b for a, b in zip(v1, v2))
+    vlen = lambda v: sqrt(dot(v, v))
+    vlen1 = vlen(l1)
+    vlen2 = vlen(l2)
+    if vlen1 > 0 and vlen2 > 0:
+        return dot(l1, l2) / (vlen(l1) * vlen(l2))
     else:
-        return False
+        return 0
 
-def graph_seeds(g1, g2, pred):
-    pairs = product(g1.nodes.values(), g2.nodes.values())
-    return {pair for pair in pairs if pred(*pair)}
+def jaccard_string_index(str1, str2):
+"""Applies the jaccard index to the set of characters in two strings. This is
+not a scientific metric by any means, and it should probably be avoided."""
+    return jaccard_index(set(str1), set(str2))
 
-def new_seed_tg(t_user, g_user, max_seeds, conn):
-    t_graph = graph.empty_graph()
-    g_graph = graph.empty_graph()
-    seeds = {(t_user, g_user): (
-                        walk_edges(t_user, twitter_walk, conn),
-                        walk_edges(g_user, github_walk, conn))}
-    while len(seeds) < max_seeds:
-        new_seeds = set()
-        for (t_seed, g_seed), (t_edges, g_edges) in seeds.items():
-            print('searching', t_seed.screen_name)
-            t_exploration = graph.from_edges(islice(t_edges, 100), hasher=lambda user: user.id)
-            g_exploration = graph.from_edges(islice(g_edges, 300), hasher=lambda user: user.id)
-            print(len(t_exploration.nodes), len(g_exploration.nodes))
-            new_seeds.update(graph_seeds(t_graph, g_exploration, tg_pred))
-            new_seeds.update(graph_seeds(t_exploration, g_graph, tg_pred))
-            new_seeds.update(graph_seeds(t_exploration, g_exploration, tg_pred))
-            print(new_seeds)
-            t_graph = graph.union(t_graph, t_exploration)
-            g_graph = graph.union(g_graph, g_exploration)
+def metric_eccentricity_greedy(attacker_data, metric, ecc):
+"""Predicts the pairs which have an eccentricity greater than a specified
+amount for the given metric. This greedily predicts, which means that it only
+selects the highest value for each target node. It does not take into account
+later predictions."""
+    m_table = table.table_apply(
+            attacker_data.t_nodes, attacker_data.a_nodes, metric(attacker_data))
+    a_nodes = attacker_data.a_nodes
+    for t in attacker_data.t_nodes:
+        indices = sorted(
+                ((a, table.index(m_table, t, a)) for a in a_nodes),
+                key=lambda x: x[1],
+                reverse=True)
+        if len(indices) == 1:
+            yield (t, indices[0][0])
+        elif len(indices) > 1:
+            xs = [index for a, index in indices]
+            eccentricity = (xs[0] - xs[1]) / numpy.std(xs)
+            if eccentricity > ecc:
+                yield (t, indices[0][0])
 
-        for pair in new_seeds:
-            if pair not in seeds:
-                seeds[pair] = (
-                        walk_edges(pair[0], twitter_walk, conn),
-                        walk_edges(pair[1], github_walk, conn))
-        print(len(t_graph.nodes), len(g_graph.nodes))
-        print(len(seeds), seeds)
-    return (t_graph, g_graph)
+def pairwise_metric_greedy(attacker_data, metric, threshold):
+"""Predicts the pairs which have an value greater than a specified
+amount for the given metric. This greedily predicts, which means that it only
+selects the highest value for each target node. It does not take into account
+later predictions."""
+    m_table = table.table_apply(
+            attacker_data.t_nodes, attacker_data.a_nodes, metric(attacker_data))
+    a_nodes = attacker_data.a_nodes
+    for t in attacker_data.t_nodes:
+        indices = ((a, table.index(m_table, t, a)) for a in a_nodes)
+        above_threshold = [(a, index) for a, index in indices if index > threshold]
+        best = max(above_threshold, key=lambda x: x[1], default=(None, None))[0]
+        if best is not None:
+            yield (t, best)
 
-def queue_seed_tg(t_user, g_user, max_seeds, conn):
-    search_queue = deque()
-    t_edges = walk_edges(t_user, twitter_walk, conn)
-    g_edges = walk_edges(g_user, github_walk, conn)
-    t_graph = graph.empty_graph()
-    g_graph = graph.empty_graph()
-    last_seeds = set()
-    last_t_size
-    while len(last_seeds) < max_seeds:
-        graph.add_edges_from(t_graph, islice(t_edges, 100), lambda user: user.id)
-        graph.add_edges_from(g_graph, islice(g_edges, 300), lambda user: user.id)
-        t_nodes = list(t_graph.nodes.values())
-        g_nodes = list(g_graph.nodes.values())
-        print(len(t_nodes))
-        print(len(g_nodes))
-        pairs = product(t_nodes, g_nodes)
-        seeds = {pair for pair in pairs if tg_pred(*pair)}
-        print(seeds)
-        if len(seeds) > len(last_seeds):
-            for seed in seeds - last_seeds:
-                search_queue.append(seed)
-            print(seeds)
-            print(len(seeds))
-            if len(search_queue) != 0:
-                (t_center, g_center) = search_queue.popleft()
-                print('switching...', t_center.screen_name, g_center.login)
-                t_edges = walk_edges(t_center, twitter_walk, conn)
-                g_edges = walk_edges(g_center, github_walk, conn)
-                last_seeds = seeds
-            else:
-                break
-    return (t_graph, g_graph)
+def pairwise_metric_conservative(attacker_data, metric, threshold):
+"""Predicts only the pairs which have a value greater than the threshold for
+the given metric, and also are the only ones to have values higher than the
+metric."""
+    m_table = table.table_apply(
+            attacker_data.t_nodes, attacker_data.a_nodes, metric(attacker_data))
+    a_nodes = attacker_data.a_nodes
+    for t in attacker_data.t_nodes:
+        indices = ((a, table.index(m_table, t, a)) for a in a_nodes)
+        above_threshold = [(a, index) for a, index in indices if index > threshold]
+        if len(above_threshold) == 1:
+            best = max(above_threshold, key=lambda x: x[1], default=(None, None))[0]
+            if best is not None:
+                yield (t, best)
 
-def seed_tg(t_user, g_user, max_seeds, conn):
-    t_edges = walk_edges(t_user, twitter_walk, conn)
-    g_edges = walk_edges(g_user, github_walk, conn)
-    t_graph = graph.empty_graph()
-    g_graph = graph.empty_graph()
-    last_seeds = set()
-    while len(last_seeds) < max_seeds:
-        graph.add_edges_from(t_graph, islice(t_edges, 100), lambda user: user.id)
-        graph.add_edges_from(g_graph, islice(g_edges, 300), lambda user: user.id)
-        t_nodes = list(t_graph.nodes.values())
-        g_nodes = list(g_graph.nodes.values())
-        print(len(t_nodes))
-        print(len(g_nodes))
-        pairs = product(t_nodes, g_nodes)
-        seeds = {pair for pair in pairs if tg_pred(*pair)}
-        print(seeds)
-        if len(seeds) > len(last_seeds):
-            (t_center, g_center) = next(iter(seeds - last_seeds))
-            print('switching...', t_center.screen_name, g_center.login)
-            print(seeds)
-            print(len(seeds))
-            t_edges = walk_edges(t_center, twitter_walk, conn)
-            g_edges = walk_edges(g_center, github_walk, conn)
-            last_seeds = seeds
-    return (t_graph, g_graph)
+def pairwise_metric_simple_threshold(attacker_data, metric, threshold):
+"""Predicts all pairs with a value greater than the specified threshold for the
+given metric."""
+    m_table = table.table_apply(
+            attacker_data.t_nodes, attacker_data.a_nodes, metric(attacker_data))
+    return [(t, a) for t, a in product(attacker_data.t_nodes, attacker_data.a_nodes)
+        if table.index(m_table, t, a) > threshold]
 
-def tg_metric(t_user, g_user):
-    total = lcs(t_user.screen_name, g_user.login)
-    if g_user.name is not None and t_user.name is not None and g_user.name == t_user.name:
-        total += 100
-    return total
+def pairwise_metric_best_n_match(attacker_data, metric, n):
+"""Predicts the pairs with the highest values according to the given metric."""
+    m_table = table.table_apply(
+            attacker_data.t_nodes, attacker_data.a_nodes, metric(attacker_data))
+    metric_sort = sorted(product(attacker_data.t_nodes, attacker_data.a_nodes), 
+            key=lambda pair: table.index(m_table, pair[0], pair[1]),
+            reverse=True)
+    if len(metric_sort) != 0:
+        for t_best, a_best in metric_sort[0:n]:
+            print(t_best.location, '|', a_best.location)
+            yield (t_best, a_best)
 
-def find_seeds(triple, conn):
-    (s_user, t_user, g_user) = triple
-    s_c = nodes_iter(stack_network(s_user), conn)
-    t_c = nodes_iter(twitter_network(t_user), conn)
-    g_c = nodes_iter(github_network(g_user), conn)
-    pairs = {pair for pair in islice(diag_product(t_c, g_c), 10000)}
-    scored = [(tg_metric(*pair), pair) for pair in pairs]
-    best = islice(sorted(scored, key=lambda x: x[0], reverse=True), 200)
-    for pair in best:
-        print(pair)
+def seed_distances_metric(attacker_data):
+"""Compares distances from all the known nodes of the targets and potentials."""
+    converted_t_dists = {attacker_data.known_seeds[t]: graph.distances(attacker_data.target, t, attacker_data.known_seeds) 
+            for t in attacker_data.t_nodes}
+    a_dists_map = {a: graph.distances(attacker_data.aux, a, attacker_data.known_seeds.values()) 
+            for a in attacker_data.a_nodes}
+    def metric(t, a):
+        t_dists = t_dists_map[t]
+        a_dists = a_dists_map[a]
+        result = sum(abs(converted_t_dists[a_seed] - a_dist) for a_seed, a_dist in a_dists.items())
+        return 30 - result
+    return metric
+
+def jaccard_metric(attacker_data):
+"""Simple comparison of nodes based on the jaccard index of the connection
+sets. The github nodes are converted to their corresponding twitter nodes if
+possible to allow matching nodes to be equal."""
+    def surrounding_nodes(node, g):
+        return g[node]
+        return set(islice(graph.surrounding_nodes(g, node), 50))
+    converted_t_sets = {
+        t: {attacker_data.known_seeds.get(x, x) 
+            for x in surrounding_nodes(t, attacker_data.target)}
+        for t in attacker_data.t_nodes}
+    a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
+    return lambda t, a: jaccard_index(converted_t_sets[t], a_sets[a])
+
+def cosine_jaccard_metric(attacker_data):
+"""Simple comparison of nodes based on the cosine jaccard index of the connection
+sets. The github nodes are converted to their corresponding twitter nodes if
+possible to allow matching nodes to be equal."""
+    def surrounding_nodes(node, g):
+        return g[node]
+        return set(islice(graph.surrounding_nodes(g, node), 50))
+    converted_t_sets = {
+        t: {attacker_data.known_seeds.get(x, x) 
+            for x in surrounding_nodes(t, attacker_data.target)}
+        for t in attacker_data.t_nodes}
+    a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
+    return lambda t, a: cosine_jaccard_index(converted_t_sets[t], a_sets[a])
+
+def shared_fraction_max_metric(attacker_data):
+"""Simple comparison of nodes based on the shared fraction of the larger set of
+the connection sets. The github nodes are converted to their corresponding
+twitter nodes if possible to allow matching nodes to be equal."""
+    def surrounding_nodes(node, g):
+        return g[node]
+        return set(islice(graph.surrounding_nodes(g, node), 50))
+    converted_t_sets = {
+        t: {attacker_data.known_seeds.get(x, x) 
+            for x in surrounding_nodes(t, attacker_data.target)}
+        for t in attacker_data.t_nodes}
+    a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
+    return lambda t, a: shared_fraction_max(converted_t_sets[t], a_sets[a])
+
+def shared_fraction_min_metric(attacker_data):
+"""Simple comparison of nodes based on the shared fraction of the smaller set of
+the connection sets. The github nodes are converted to their corresponding
+twitter nodes if possible to allow matching nodes to be equal."""
+    def surrounding_nodes(node, g):
+        return g[node]
+        return set(islice(graph.surrounding_nodes(g, node), 50))
+    converted_t_sets = {
+        t: {attacker_data.known_seeds.get(x, x) 
+            for x in surrounding_nodes(t, attacker_data.target)}
+        for t in attacker_data.t_nodes}
+    a_sets = {a: surrounding_nodes(a, attacker_data.aux) for a in attacker_data.a_nodes}
+    return lambda t, a: shared_fraction_min(converted_t_sets[t], a_sets[a])

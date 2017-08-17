@@ -1,13 +1,17 @@
+"""The module for all StackOverflow related code. The acquisition from
+stackoverflow is done by mining a downloaded data dump, so there is no issue
+with rate limits."""
 import xml.etree.ElementTree as ET
-import itertools
-import sqlite3
-import time
 import re
-from misc import clean_str_key
+from network import Walk
+from visualization import GexfWritable, CsvWritable
+from rest import clean_str_key
 from collections import namedtuple
 from datetime import datetime
 
 def xml_children(filename):
+"""Iterate through all children in a 1-deep xml file, which is how all
+StackOverflow files are structured."""
     for event, child in ET.iterparse(filename):
         if event == 'end' and child.tag == 'row':
             yield child.attrib
@@ -149,14 +153,6 @@ def reload_posts(conn):
         if count % 10000 == 0: 
             print(count / 1000000.0)
 
-def user_to_json(user):
-    return {'id': user.id,
-            'displayName': user.display_name,
-            'reputation': user.reputation,
-            'websiteUrl': user.websiteUrl,
-            'age': user.age,
-            'location': user.location}
-
 def user_fetch_id(user_id, conn):
     row = conn.execute(
             'SELECT * FROM StackUsers WHERE Id = ?',
@@ -169,6 +165,12 @@ def user_fetch_display_name(display_name, conn):
             (display_name,)).fetchone()
     return User(*row)
 
+def user_fetch_display_name_all(display_name, conn):
+    rows = conn.execute(
+            'SELECT * FROM StackUsers WHERE DisplayName = ?',
+            (display_name,)).fetchall()
+    return [User(*row) for row in rows]
+
 def user_posts(user, conn):
     return [post_from_db(row, conn) for row in conn.execute(
         'SELECT * FROM StackPosts WHERE OwnerUserId = ?',
@@ -180,6 +182,7 @@ def user_comments(user, conn):
         (user.id,))]
 
 def user_answerers(user, conn):
+"Fetches all users which have answered a question asked by the given user."
     rows = conn.execute('''
         SELECT answerers.* FROM StackUsers su
         JOIN StackPosts sp ON su.Id = sp.OwnerUserId
@@ -189,6 +192,7 @@ def user_answerers(user, conn):
     return [User(*row) for row in rows]
 
 def user_questioners(user, conn):
+"Fetches all users which have asked a question answered by the given user."
     rows = conn.execute('''
         SELECT questioners.* FROM StackUsers su
         JOIN StackPosts sp ON su.Id = sp.OwnerUserId
@@ -197,5 +201,32 @@ def user_questioners(user, conn):
         WHERE su.Id = ?''', (user.id,)).fetchall()
     return [User(*row) for row in rows]
 
-def user_degree(user, conn):
-    return len(user_answerers(user, conn)) + len(user_questioners(user, conn))
+user_attribute_schema = {
+        'id': 'string',
+        'display_name': 'string',
+        'reputation': 'integer',
+        'website_url': 'string',
+        'age': 'integer',
+        'location': 'string'}
+
+def user_serialize(user):
+    return user._asdict()
+
+def user_label(user):
+    return user.display_name
+
+user_gexf = GexfWritable(
+        schema=user_attribute_schema,
+        serialize=user_serialize,
+        label=user_label)
+
+user_csv = CsvWritable(
+        to_row=lambda user: list(user),
+        from_row=lambda row: User(*row),
+        cols='id display_name reputation website_url age location'.split(' '))
+
+def user_walk(conn):
+    return Walk(
+            out_gen=lambda user: user_questioners(user, conn),
+            in_gen=lambda user: user_answerers(user, conn),
+            select_leaves=lambda leaves: leaves)

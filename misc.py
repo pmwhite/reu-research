@@ -1,72 +1,88 @@
-import itertools
-import time
-from datetime import datetime
+"""A module containing some general-purpose utility functions. These functions
+aren't specific to any part of the project, although they may be used by some
+more than others."""
+import hashlib
+import pickle
+from collections import deque
+from datetime import datetime, time
 
-def grouper(iterable, n):
-    args = [iter(iterable)] * n
-    for group in itertools.zip_longest(*args, fillvalue=None):
-        yield list(filter(lambda x: x is not None, group))
+def progress(goal, current):
+"""Display a progress bar of the percentage of the specified goal that the
+current progress is."""
+    c = int(current / goal * 100)
+    print('|' + ('=' * c).ljust(100) + '|', str(current) + '/' + str(goal))
 
-def clean_str_key(data, key):
-    s = data.get(key, None)
-    if s == '': return None
-    else: return s
+def progress_list(l):
+"""Create an iterator from a list that displays a progress bar for each item
+enumerated."""
+    goal = len(l)
+    for i, item in enumerate(l):
+        progress(goal, i)
+        yield item
 
-def rated_request(make_request, extract_rate_info):
-    (cached, response) = make_request()
-    if not cached:
-        (reset_time, requests_left) = extract_rate_info(response)
-        time_before_reset = reset_time - datetime.utcnow().timestamp()
-        if requests_left <= 1: delay_time = time_before_reset + 5
-        else: delay_time = time_before_reset / requests_left
-        print('time left:', time_before_reset, ', requests left:', requests_left, ', delaying:', delay_time)
-        time.sleep(max(0.1,delay_time))
-    return response
+def hash(obj):
+"Return a cryptographic hash of the pickled representation of an object."
+    return hashlib.sha256(pickle.dumps(obj)).digest()
 
-def paginate_api(make_request, extract_cursor, extract_items):
-    response = make_request(None)
-    while response.status_code == 200:
-        next_cursor = extract_cursor(response)
-        for item in extract_items(response):
-            yield item
-        if next_cursor is None:
-            break
-        response = make_request(next_cursor)
+def prefix_keys(d, prefix):
+"Prefix all keys in a dictionary with a certain string."
+    return {prefix + key: value for key, value in d.items()}
 
-def fetch_many_db(query, identifiers, entity_creator, conn):
-    def fetch_one(ident):
-        db_response = conn.execute(query, (ident,)).fetchone()
-        if db_response is not None:
-            return entity_creator(*db_response)
-    return {ident: fetch_one(ident) for ident in identifiers}
+def select_keys(d, keys):
+"Create a dict with a subset of keys from another dict."
+    return {d[key] for key in keys}
 
-def cached_fetch(db_query, api_fetch_many, from_db, from_json, store, identifiers, conn):
-    def fetch_one(ident):
-        row = conn.execute(db_query, (ident,)).fetchone()
-        if row is not None:
-            return from_db(*row)
-    result = {ident: fetch_one(ident) for ident in identifiers}
-    api = api_fetch_many([ident for ident, entity in result.items() if entity is None])
-    for ident, entity in api.items():
-        if entity is not None:
-            store(entity, conn)
-            result[ident] = entity
-    return result
+def breadth_first_walk_from(roots, expand):
+"""Walks outward from a set of central nodes, yielding each node as it is
+encountered.  The given `expand` function takes a node and yields it's
+neighboring node. The central nodes are the first to be yielded."""
+    found = set(roots)
+    search_queue = deque(found)
+    yield from search_queue
+    while len(search_queue) != 0:
+        x = search_queue.popleft()
+        expanded = expand(x)
+        if expanded == None:
+            return
+        for item in expanded:
+            if item not in found:
+                found.add(item)
+                yield item
+                search_queue.append(item)
 
-def cached_search(entity, db_search, global_search, store, search_type, conn):
-    row = conn.execute('''
-            SELECT * FROM ApiSearches 
-            WHERE EntityId = ? 
-            AND SearchType = ?''',
-            (entity.id, search_type)).fetchone()
-    if row is not None:
-        for item in db_search(entity, conn):
-            yield item
-    else:
-        for item in global_search(entity, conn):
-            store(entity, item, conn)
-            yield item
-        conn.execute(
-                'INSERT INTO ApiSearches VALUES(?,?)',
-                (entity.id, search_type))
-        conn.commit()
+def breadth_first_walk(root, expand):
+"Same as `breadth_first_walk_from` except with a single node at the center."
+    return breadth_first_walk_from({root}, expand)
+
+def hop_iter_from(roots, expand):
+"""Hops outward from a set of central nodes. This is different from the
+breadth-first walk because it yield groups of nodes rather than a continuous
+stream. The given expander gets the neighboring nodes of a specific node."""
+    found = set(roots)
+    leaves = set(found)
+    while len(leaves) != 0:
+        yield leaves
+        new_leaves = set()
+        for leaf in leaves:
+            new_leaves.update(item for item in expand(leaf) if item not in found)
+        leaves = new_leaves - found
+        found = found | new_leaves
+
+def hop_iter(root, expand):
+"Same as `hop_iter_from` but with a single central node."
+    return hop_iter_from(set(root), expand)
+
+def day_seconds(dt):
+"Finds how many seconds a into the day a certain datetime is."
+    day_start = datetime.combine(dt.date(), time(0))
+    return (dt - day_start).seconds
+
+def activity_histogram(dts, num_blocks, conn):
+"""Given some datetimes and n partitions, partitions the day into a `n` blocks
+and finds the frequency of the datetimes landing in each partition."""
+    block_counts = {i: 0 for i in range(num_blocks)}
+    seconds_in_a_day = 24 * 60 * 60
+    block_length = seconds_in_a_day / num_blocks
+    for dt in dts:
+        block_counts[int(day_seconds(dt) / block_length - 0.5)] += 1
+    return [block_counts[i] for i in range(num_blocks)]

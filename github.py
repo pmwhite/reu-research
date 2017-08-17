@@ -1,22 +1,25 @@
-import requests
-import time
-import datetime
-import sqlite3
-import itertools
-import keys
-import re
-import misc
-import rest
-from misc import clean_str_key
+"""A module for accessing the Github API in a controlled enough manner that one
+does not need to think about rate limits. All API calls are cached into a
+database."""
+from network import Walk
+from itertools import chain, islice
+from visualization import GexfWritable, CsvWritable
+from rest import clean_str_key
 from datetime import datetime
 from collections import namedtuple
+import keys
+import rest
+import misc
 
-def graphql_request(query):
+def graphql_request(query, conn):
+"Requests the Github GraphQL API with the given query."
     def make_request():
         return rest.cached_post(
+                rate_family='github_graphql',
                 url='https://api.github.com/graphql',
                 params={'access_token': keys.GITHUB_KEY},
-                json={'query': query})
+                json={'query': query},
+                conn=conn)
     def extract_rate_info(response):
         info = response.json()['data']['rateLimit']
         reset_time = datetime.strptime(
@@ -24,14 +27,19 @@ def graphql_request(query):
                 '%Y-%m-%dT%H:%M:%SZ').timestamp()
         requests_left = info['remaining']
         return (reset_time, requests_left)
-    return misc.rated_request(make_request, extract_rate_info)
+    return rest.rated_request(make_request, extract_rate_info, rate_family='github_graphql')
 
-def paginate_gql_connection(baseQuery, nodes_path):
+def paginate_gql_connection(baseQuery, nodes_path, conn):
+"""Traverses a paged query using the specified query. The given query should
+have a single format specifier where the 'after' parameter should go on the
+paginated item. The cursor parameter will be interpolated into the string as
+needed. The nodes_path is the path to the object that will contain the
+items."""
     def make_request(cursor):
         cursor_str = ''
         if cursor is not None:
             cursor_str = 'after: "%s"' % cursor
-        return graphql_request(baseQuery % cursor_str)
+        return graphql_request(baseQuery % cursor_str, conn)
     def extract_cursor(response):
         data = response.json()['data']
         for path_item in nodes_path:
@@ -45,13 +53,13 @@ def paginate_gql_connection(baseQuery, nodes_path):
             data = data[path_item]
         for node in data['nodes']:
             yield node
-    return misc.paginate_api(make_request, extract_cursor, extract_items)
+    return rest.paginate_api(make_request, extract_cursor, extract_items)
 
 User = namedtuple('User', 'id login location email name website_url company')
 Repo = namedtuple('Repo', 'id owner_id owner_login name language homepage is_fork')
 
-# Dict -> User
 def user_from_json(data):
+"Turns a json object into a user object."
     return User(
             id=data['id'],
             login=data['login'],
@@ -61,17 +69,8 @@ def user_from_json(data):
             website_url=clean_str_key(data, 'websiteUrl'),
             company=clean_str_key(data, 'company'))
 
-# User -> Dict
-def user_to_json(user):
-    return {'id': user.id,
-            'login': user.login,
-            'location': user.location,
-            'email': user.email,
-            'websiteUrl': user.website_url,
-            'company': user.company}
-
-# Dict -> Repo
 def repo_from_json(data):
+"Turns a json object into a repo object."
     if data['primaryLanguage'] is not None:
         language = data['primaryLanguage']['name']
     else:
@@ -85,22 +84,12 @@ def repo_from_json(data):
             is_fork=data['isFork'],
             homepage=clean_str_key(data, 'homepageUrl'))
 
-# Repo -> Dict
-def repo_to_json(repo):
-    return {'id': repo.id,
-            'ownerId': repo.owner_id,
-            'ownerLogin': repo.owner_login,
-            'name': repo.name,
-            'language': repo.language,
-            'isFork': repo.is_fork,
-            'homepage': repo.homepageUrl}
-
 # String -> String
 def clean_login(login): 
     return '_' + ''.join(['%.5d' % ord(c) for c in login])
 
 # String list -> Map<String, User option>
-def user_fetch_logins_api(logins):
+def user_fetch_logins(logins, conn):
     user_snippet = '''
         %s:repositoryOwner(login: "%s") {
             login 
@@ -111,11 +100,11 @@ def user_fetch_logins_api(logins):
         }'''
     rate_snippet = 'rateLimit { remaining resetAt cost }'
     result = {}
-    for login_group in misc.grouper(logins, 100):
+    for login_group in rest.grouper(logins, 100):
         users_snippet = '\n'.join(
                 [user_snippet % (clean_login(login), login) for login in login_group])
         query_str = 'query {\n%s\n%s}' % (users_snippet, rate_snippet)
-        response = graphql_request(query_str)
+        response = graphql_request(query_str, conn)
         data = response.json()['data']
         for login in login_group:
             json = data[clean_login(login)]
@@ -126,34 +115,10 @@ def user_fetch_logins_api(logins):
     return result
 
 # String -> DB -> User option
-def user_fetch_login_db(login, conn):
-    db_response = conn.execute(
-            'SELECT * FROM GithubUsers WHERE Login = ?', 
-            (login,)).fetchone()
-    if db_response:
-        return User(*db_response)
-    else:
-        return None
-
-# String list -> DB -> Map<String, User option>
-def user_fetch_logins_db(logins, conn):
-    return {login: user_fetch_login_db(login, conn) for login in logins}
-
-# String list -> DB -> Map<String, User option>
-def user_fetch_logins(logins, conn):
-    result = user_fetch_logins_db(logins, conn)
-    api = user_fetch_logins_api([login for login, user in result.items() if user is None])
-    for login, user in api.items():
-        if user is not None:
-            store_user(user, conn)
-            result[login] = user
-    return result
-
-# String -> DB -> User option
 def user_fetch_login(login, conn):
     return user_fetch_logins([login], conn)[login]
 
-def user_repos_api(user):
+def user_repos(user, conn):
     baseQuery = '''
         query { 
             rateLimit { remaining resetAt cost }
@@ -171,57 +136,12 @@ def user_repos_api(user):
                 }
             }
         }'''
-    for item in paginate_gql_connection(baseQuery, ['repositoryOwner', 'repositories']):
+    for item in paginate_gql_connection(baseQuery, ['repositoryOwner', 'repositories'], conn):
         repo = repo_from_json(item)
         if repo.owner_id == user.id:
             yield repo
 
-def user_repos_db(user, conn):
-    db_response = conn.execute(
-        'SELECT * FROM GithubRepos WHERE OwnerId = ?',
-        (user.id,)).fetchall()
-    for values in db_response:
-        yield Repo(*values)
-
-def store_user(user, conn):
-    values = (user.id, user.login, user.location, 
-            user.email, user.name, user.website_url, user.company)
-    conn.execute(
-            'INSERT OR IGNORE INTO GithubUsers VALUES(?,?,?,?,?,?,?)',
-            values)
-
-def store_repo(repo, conn):
-    values = (repo.id, repo.owner_id, repo.owner_login, repo.name, 
-            repo.language, repo.is_fork, repo.homepage)
-    conn.execute(
-            'INSERT OR IGNORE INTO GithubRepos VALUES(?,?,?,?,?,?,?)',
-            values)
-
-def store_repo_contributor(repo, contributor, conn):
-    store_user(contributor, conn)
-    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
-            (contributor.id, repo.id))
-
-def user_repos(user, conn):
-    return misc.cached_search(
-            entity=user,
-            db_search=user_repos_db,
-            global_search=lambda user, conn: user_repos_api(user),
-            store=lambda _, repo, conn: store_repo(repo, conn),
-            search_type='github:repository',
-            conn=conn)
-
-def repo_contributors_db(repo, conn):
-    id_rows = conn.execute(
-            'SELECT UserId FROM GithubContributions WHERE RepoId = ?', 
-            (repo.id,)).fetchall()
-    for row in id_rows:
-        values = conn.execute(
-            'SELECT * FROM GithubUsers WHERE Id = ?',
-            row).fetchone()
-        yield User(*values)
-
-def repo_contributors_api(repo, conn):
+def repo_contributors(repo, conn):
     baseQuery = '''
         query {
             rateLimit { remaining resetAt cost }
@@ -234,29 +154,10 @@ def repo_contributors_api(repo, conn):
                 }
             }
         }'''
-    for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers']):
+    for item in paginate_gql_connection(baseQuery, ['repository', 'mentionableUsers'], conn):
         yield user_from_json(item)
 
-def repo_contributors(repo, conn):
-    return misc.cached_search(
-        entity=repo,
-        db_search=repo_contributors_db,
-        global_search=repo_contributors_api,
-        store=store_repo_contributor,
-        search_type='github:contributor',
-        conn=conn)
-
-def user_contributed_repos_db(user, conn):
-    id_rows = conn.execute(
-            'SELECT RepoId FROM GithubContributions WHERE UserId = ?', 
-            (user.id,)).fetchall()
-    for row in id_rows:
-        values = conn.execute(
-            'SELECT * FROM GithubRepos WHERE Id = ?',
-            row).fetchone()
-        yield Repo(*values)
-
-def user_contributed_repos_api(user, conn):
+def user_is_user(user, conn):
     isUserQuery = '''
         query {
             repositoryOwner(login: "''' + user.login + '''") {
@@ -264,7 +165,12 @@ def user_contributed_repos_api(user, conn):
             }
             rateLimit { remaining resetAt }
         }'''
-    if graphql_request(isUserQuery).json()['data']['repositoryOwner']['__typename'] == 'User':
+    req = graphql_request(isUserQuery, conn).json()
+    return ('__typename' in req['data']['repositoryOwner'] and
+            req['data']['repositoryOwner']['__typename'] == 'User')
+
+def user_contributed_repos(user, conn):
+    if user_is_user(user, conn):
         baseQuery = '''
             query { 
                 rateLimit { remaining resetAt cost }
@@ -282,30 +188,98 @@ def user_contributed_repos_api(user, conn):
                     }
                 }
             }'''
-        for item in paginate_gql_connection(
-                baseQuery, ['user', 'contributedRepositories']):
-            yield repo_from_json(item)
+        return (repo_from_json(item) for item in 
+                paginate_gql_connection(baseQuery, ['user', 'contributedRepositories'], conn))
+    else:
+        return []
 
-def store_user_contributed_repo(user, contributed_repo, conn):
-    store_repo(contributed_repo, conn)
-    conn.execute('INSERT INTO GithubContributions VALUES(?,?)',
-            (user.id, contributed_repo.id))
+def parse_date(date_str):
+    return datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%SZ')
 
-def user_contributed_repos(user, conn):
-    return misc.cached_search(
-            entity=user,
-            db_search=user_contributed_repos_db,
-            global_search=user_contributed_repos_api,
-            store=store_user_contributed_repo,
-            search_type='github:contributed_repository',
-            conn=conn)
+def user_pull_request_instants(user, conn):
+    if user_is_user(user, conn):
+        baseQuery = '''
+            query {
+                rateLimit { remaining resetAt cost }
+                user(login: "''' + user.login + '''") {
+                    pullRequests(first: 100, %s) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            createdAt
+                        }
+                    }
+                }
+            }'''
+        for pullRequest in paginate_gql_connection(baseQuery, ['user', 'pullRequests'], conn):
+            yield parse_date(pullRequest['createdAt'])
 
-def user_parents(user, conn):
-    for repo in github.user_repos(user, conn):
+def user_issue_instants(user, conn):
+    if user_is_user(user, conn):
+        baseQuery = '''
+            query {
+                rateLimit { remaining resetAt cost }
+                user(login: "''' + user.login + '''") {
+                    issues(first: 100, %s) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            createdAt
+                        }
+                    }
+                }
+            }'''
+        for issue in paginate_gql_connection(baseQuery, ['user', 'issues'], conn):
+            yield parse_date(issue['createdAt'])
+
+def activity_histogram(user, num_blocks, conn):
+    instants = chain(
+            islice(user_issue_instants(user, conn), 200),
+            islice(user_pull_request_instants(user, conn), 200))
+    return misc.activity_histogram(instants, num_blocks, conn)
+
+user_attribute_schema = {
+        'id': 'string', 
+        'login': 'string', 
+        'location': 'string',
+        'email': 'string',
+        'name': 'string',
+        'website_url': 'string',
+        'company': 'string'}
+
+def user_serialize(user):
+    return user._asdict()
+
+def user_label(user):
+    return user.login
+
+user_gexf = GexfWritable(
+        schema=user_attribute_schema,
+        serialize=user_serialize,
+        label=user_label)
+
+user_csv = CsvWritable(
+        to_row=lambda user: list(user),
+        from_row=lambda row: User(*row),
+        cols='id login location email name website_url company'.split(' '))
+
+def user_out_gen(user, conn):
+    for repo in user_contributed_repos(user, conn):
+        yield user_fetch_login(repo.owner_login, conn)
+
+def user_in_gen(user, conn):
+    for repo in user_repos(user, conn):
         if not repo.is_fork:
-            for contributor in github.repo_contributors(repo, conn):
+            for contributor in repo_contributors(repo, conn):
                 yield contributor
 
-def user_children(user, conn):
-    for repo in github.user_contributed_repos(user, conn):
-        yield github.user_fetch_login(repo.owner_login, conn)
+def user_select_leaves(leaves): 
+    for leaf in leaves:
+        if leaf.login == 'Try-Git':
+            continue
+        else:
+            yield leaf
+
+def user_walk(conn):
+    return Walk(
+            out_gen=lambda user: user_out_gen(user, conn),
+            in_gen=lambda user: user_in_gen(user, conn),
+            select_leaves=lambda leaves: user_select_leaves(leaves))

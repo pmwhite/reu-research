@@ -1,31 +1,41 @@
+"""This module contains functions for combining Twitter, GitHub, and
+StackOverflow for analysis. It has some Twitter-GitHub-specific metrics for
+de-anonymization, and it has functions for pulling common users between all
+three sites from the APIs."""
 import sqlite3
-
+from itertools import groupby, islice
+from rest import grouper
+from network import degree
+import deanon
+import dataset
 import github
 import stack
 import twitter
 
-from itertools import groupby, islice
-from misc import grouper
-from network import github_network, stack_network, twitter_network, connections
+def check_username(username, conn):
+"Checks whether there is a user with a certain username on all three sites."
+    stack_rows = conn.execute(
+            'SELECT * FROM StackUsers WHERE DisplayName = ?',
+            [username]).fetchall()
+    stack_users = [stack.User(*row) for row in stack_rows]
+    twitter_user = twitter.user_fetch_screen_name(username, conn)
+    github_user = github.user_fetch_login(username, conn)
+    return (stack_users, twitter_user, github_user)
 
-def find_potential_common_users(conn):
-    prev_rows = conn.execute('''
-            SELECT su.*, tu.*, gu.* FROM StackUsers su
-            JOIN TwitterUsers tu ON su.DisplayName = tu.ScreenName
-            JOIN GithubUsers gu ON gu.Login = tu.ScreenName
-            JOIN Dict WHERE su.DisplayName COLLATE NOCASE <= Dict.Value''')
-    user_triples = ((stack.User(*row[0:6]), 
-        twitter.User(*row[6:13]), 
-        github.User(*row[13:20]))
-        for row in prev_rows)
-    grouped_triples = ((list(triple[0] for triple in triples), t_user, g_user) 
-            for (t_user, g_user), triples in groupby(user_triples, lambda triple: triple[1:3]))
-    for x in grouped_triples:
-        yield x
-    stack_rows = conn.execute('''
-            SELECT su.* FROM StackUsers su
-            JOIN Dict WHERE su.DisplayName COLLATE NOCASE > Dict.Value
-            ORDER BY su.DisplayName COLLATE NOCASE''')
+def username_matches(conn, after=None):
+"Yields a triple of (StackOverflow users, Twitter user, and GitHub user). Every
+user in the triple has the same username. Since stackoverflow may have multiple
+users with the same username, we return a list of StackOverflow users in the
+triple."
+    if after is not None:
+        stack_rows = conn.execute('''
+                SELECT * FROM StackUsers
+                WHERE DisplayName > ?
+                ORDER BY DisplayName COLLATE NOCASE''', [after])
+    else:
+        stack_rows = conn.execute('''
+                SELECT * FROM StackUsers
+                ORDER BY DisplayName COLLATE NOCASE''')
     stack_users = (stack.User(*row) for row in stack_rows)
     grouped_stack_users = ((k, list(vs)) 
             for k, vs in groupby(stack_users, lambda user: user.display_name))
@@ -42,51 +52,64 @@ def find_potential_common_users(conn):
             gu = github_users[dn]
             if su is not None and tu is not None and gu is not None:
                 yield (su, tu, gu)
-            conn.execute('UPDATE Dict SET Value = ?', (dn,))
 
-def triple_rating(s, t, g):
-    rating = 0
-    if s.display_name == t.name and g.name == t.name:
-        rating += 1
-    if s.location == t.location and g.location == t.location and s.location is not None:
-        rating += 1
-    return rating
-
-def best_triples(conn):
-    potentials = find_potential_common_users(conn)
-    for (s_users, t, g) in potentials:
-        triples = [(s, t, g) for s in s_users]
-        yield max(triples, key=lambda triple: triple_rating(*triple))
-
-def good_triples(conn):
-    return (triple for triple in best_triples(conn) if triple_rating(*triple) > 1)
-
-def iter_at_least(iterator, n):
-    return n - len(list(islice(iterator, n)))
-
-def root_short(n, network, conn):
-    users = set()
-    for connection in connections(network, conn):
-        users.add(connection)
-        if len(users) >= n:
-            break
-    return n - len(users)
-
-def unique_stack_matches(conn):
-    for i, (s_users, t, g) in enumerate(find_potential_common_users(conn)):
+def unique_username_matches(conn, after=None):
+"""Same as `username_matches` except only those with only one StackOverflow
+username match. Because there is only one, the StackOverflow user is not inside
+a list."""
+    for s_users, t, g in username_matches(conn, after=after):
         if len(s_users) == 1 and s_users[0].display_name == t.name and t.name == g.name:
             yield (s_users[0], t, g)
 
-def active_matches(s_limit, t_limit, g_limit, conn):
-    for s, t, g in unique_stack_matches(conn):
-        s_short = root_short(s_limit, stack_network(s), conn)
-        g_short = None
-        t_short = None
-        if s_short <= 0:
-            g_short = root_short(g_limit, github_network(g), conn)
-            if g_short <= 0:
-                t_short = root_short(t_limit, twitter_network(t), conn)
-                if t_short <= 0:
+def active_unique_username_matches(conn, s_limit, t_limit, g_limit, after=None):
+"""Yields the triples of users in which all three users have a degree greater
+than the specified amount for each of their respective networks."""
+    for s, t, g in unique_username_matches(conn, after=after):
+        if degree(s, stack.user_walk, conn) >= s_limit:
+            if degree(g, github.user_walk, conn) >= g_limit:
+                if degree(t, twitter.user_walk, conn) >= t_limit:
                     yield (s, t, g)
-        print(s_short, t_short, g_short, g.login)
 
+def tg_location_metric(attacker_data):
+"""A metric for comparing Twitter and Github users based on their location
+strings."""
+    def metric(t, a):
+        if t.location is not None and a.location is not None:
+            return deanon.jaccard_string_index(t.location, a.location)
+        else:
+            return 0
+    return metric
+
+def tg_jaccard_location_metric(attacker_data):
+"""A metric which is the sum of the jaccard metric and the location metric."""
+    j_metric = deanon.jaccard_metric(attacker_data)
+    l_metric = tg_location_metric(attacker_data)
+    return lambda t, a: j_metric(t, a) + l_metric(t, a)
+
+def tg_activity_metric(attacker_data):
+"""A metric for comparing the activity histograms of Twitter and Github. The
+similarity is essentially the cosine similarity of the time slot vectors."""
+    conn = sqlite3.connect('data/data.db')
+    t_histograms = {t: twitter.activity_histogram(t, 5, conn) for t in attacker_data.t_nodes}
+    a_histograms = {a: github.activity_histogram(a, 5, conn) for a in attacker_data.a_nodes}
+    def metric(t, a):
+        return deanon.cosine_similarity(t_histograms[t], a_histograms[a])
+    return metric
+
+def tg_is_seed(t_user, g_user):
+"Checks whether a Github and Twitter user match enough to be considered a seed."
+    return (g_user.login == t_user.screen_name or
+            (g_user.name is not None and 
+            t_user.name is not None and 
+            ' ' in g_user.name and 
+            g_user.name == t_user.name))
+
+def tg_scenario(conn):
+"A scenario for getting a Twitter-Github dataset."
+    return dataset.Scenario(
+        t_walk=twitter.user_walk(conn),
+        a_walk=github.user_walk(conn),
+        seed_pred=tg_is_seed)
+
+"A serializer for Twitter and Github"
+tg_gexf = dataset.mashed_gexf(twitter.user_gexf, github.user_gexf)

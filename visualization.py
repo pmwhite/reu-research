@@ -1,51 +1,82 @@
-import graphviz as gv
-import networkx as nx
-import twitter
-import stack
-import sys
-import sqlite3
-import os
-import github
-import common
-import network
+"""A module for saving graphs to gexf and csv files. It uses a 'typeclass' for
+each of those two formats, so each graph item type should implement one of
+those. Pass the typeclass to the function that writes the output."""
+from collections import namedtuple
+import graph
+import xml.etree.cElementTree as ET
 
-def get_three_networks(s_user, t_user, g_user, out_dir, conn):
-    username = g_user.login
-    print('=' * 80, username, '=' * 80)
-    print('-' * 80, 'stackoverflow graph', '-' * 80)
-    stack_file = out_dir + '/stack.gml'
-    if not os.path.exists(stack_file):
-        stack_graph = stack_network(s_user, depth=2, conn=conn)
-        save_network(stack_graph, stack_file)
-    else:
-        print('file already exists')
-    print('-' * 80, 'twitter graph', '-' * 80)
-    twitter_file = out_dir + '/twitter.gml'
-    if not os.path.exists(twitter_file):
-        twitter_graph = twitter_network(t_user, depth=2, conn=conn)
-        save_network(twitter_graph, twitter_file)
-    else:
-        print('file already exists')
-    print('-' * 80, 'github graph', '-' * 80)
-    github_file = out_dir + '/github.gml'
-    if not os.path.exists(github_file):
-        github_graph = github_network(g_user, depth=2, conn=conn)
-        save_network(github_graph, github_file)
-    else:
-        print('file already exists')
+GexfWritable = namedtuple('GexfWritable', 'schema serialize label')
+CsvWritable = namedtuple('CsvWritable', 'to_row from_row cols')
 
-def common_networks(out_dir, conn):
-    if not os.path.isdir(out_dir):
-        os.mkdir(out_dir)
-    for (s_user, t_user, g_user) in common.filtered(conn):
-        target_dir = out_dir + '/' + g_user.login
-        if not os.path.exists(target_dir):
-            os.mkdir(target_dir)
-        get_three_networks(s_user, t_user, g_user, target_dir, conn)
+def multi_gexf(schemas, type_legend):
+"""Takes a dict of schemes and merges them by prefixing each schema with the key in the dict. The type_legend allows specifying which type each key in the final dict is."""
+    schema = {'node_type': 'string'}
+    for t, (prefix, gexf)  in schemas:
+        schema.update(misc.prefix_keys(gexf.schema, prefix))
+    def multi_serialize(node):
+        (prefix, gexf) = type_legend[type(node)]
+        return misc.prefix_keys(gexf.serialize(node), prefix)
+    def multi_labeler(node):
+        (prefix, gexf) = type_legend[type(node)]
+        return prefix + gexf.label(node)
 
-with sqlite3.connect('data/data.db') as conn:
-    # g = common_graphs(20, cursor)
-    # g = twitter_network(sys.argv[1], depth=2, conn=conn) #stack_network(2449599, cursor, depth=2)
-    # save_network(g, sys.argv[2])
-    # get_three_networks('mwilliams', 23909, 'mwilliams', cursor)
-    common_networks('outputs', conn)
+def write_gexf(g, gexf):
+"""Badly-named: returns a gexf graph xml object, but does not write it to a
+file."""
+    root = ET.Element('gexf', xmlns='http://www.gexf.net/1.2draft', version='1.2')
+    g_tag = ET.Element('graph', mode='static', defaultedgetype='directed')
+    nodes = ET.Element('nodes')
+    attributes = ET.Element('attributes', {'class': 'node'})
+    node_key = {node: str(i) for i, node in enumerate(g)}
+    attr_key = {}
+    for i, (a_name, a_type) in enumerate(gexf.schema.items()):
+        attr_key[a_name] = str(i)
+        attributes.append(ET.Element('attribute', {'id': str(i), 'title': a_name, 'type': a_type}))
+    for node, node_id in node_key.items():
+        node_tag = ET.Element('node', id=node_id, label=gexf.label(node))
+        attvalues = ET.Element('attvalues')
+        for k, v in gexf.serialize(node).items():
+            if v is not None:
+                attvalues.append(ET.Element('attvalue', {'for': attr_key[k], 'value': str(v)}))
+        node_tag.append(attvalues)
+        nodes.append(node_tag)
+    edges = ET.Element('edges')
+    for i, (f, t) in enumerate(graph.edges(g)):
+        edges.append(ET.Element('edge', id=str(i), source=node_key[f], target=node_key[t]))
+    g_tag.append(attributes)
+    g_tag.append(nodes)
+    g_tag.append(edges)
+    root.append(g_tag)
+    return ET.ElementTree(root)
+
+def write_csv(g, csv, base_file, sep='|'):
+"""Writes two CSV files - one for nodes and one for edges. The files are named
+with a given prefix so that they can be associated with each other."""
+    node_id_key = {}
+    with open(base_file + '_nodes.csv', 'w') as f:
+        f.write('node_id', sep.join(csv.cols) + '\n')
+        for i, node in enumerate(g):
+            node_id_key[node] = str(i)
+            f.write(str(i) + sep + sep.join(csv.to_csv(node)) + '\n')
+    with open(base_file + '_edges.csv', 'w') as f:
+        f.write('from' + sep + 'to\n')
+        for f, t in graph.edges(g):
+            f.write(node_id_key[f] + sep + node_id_key[t] + '\n')
+
+def read_csv(csv, base_file, sep='|'):
+"""Reads two CSV files - one for nodes and one for edges. Since `write_csv`
+associates files with a prefix, this function reads files together based on a
+certain prefix."""
+    id_node_key = {}
+    with open(base_file + '_nodes.csv', 'r') as f:
+        cols = next(f)
+        for line in f:
+            row = line.split(sep)
+            id_node_key[row[0]] = csv.from_row(row[1:])
+    with open(base_file + '_edges.csv', 'r') as f:
+        cols = next(f)
+        g = graph.empty_graph()
+        for line in f:
+            row = line.split(sep)
+            graph.add_edge(g, id_node_key(row[0]), id_node_key(row[1]))
+    return g
